@@ -1,0 +1,76 @@
+<Window x:Class="AirPad.SettingsWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AirPad Settings" Height="620" Width="480"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+    <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
+        <StackPanel>
+            <Label Content="Receiver name (shown on the iPad)"/>
+            <TextBox Text="{Binding ReceiverName, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <Label Content="Device ID (MAC, e.g. 11:22:33:44:55:66)" Margin="0,8,0,0"/>
+            <TextBox Text="{Binding DeviceId, UpdateSourceTrigger=PropertyChanged}"/>
+
+            <Grid Margin="0,8,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition/><ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <StackPanel Margin="0,0,8,0">
+                    <Label Content="AirPlay port (TCP)"/>
+                    <TextBox Text="{Binding AirPlayPort, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Label Content="AirTunes port (TCP)" Margin="0,8,0,0"/>
+                    <TextBox Text="{Binding AirTunesPort, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+                <StackPanel Grid.Column="1" Margin="8,0,0,0">
+                    <Label Content="Audio control port (UDP)"/>
+                    <TextBox Text="{Binding AudioControlPort, UpdateSourceTrigger=PropertyChanged}"/>
+                    <Label Content="Audio data port (UDP)" Margin="0,8,0,0"/>
+                    <TextBox Text="{Binding AudioDataPort, UpdateSourceTrigger=PropertyChanged}"/>
+                </StackPanel>
+            </Grid>
+
+            <CheckBox Content="Start with Windows" IsChecked="{Binding AutoStart}" Margin="0,12,0,0"/>
+            <CheckBox Content="Fullscreen when a device connects" IsChecked="{Binding FullscreenOnConnect}"/>
+            <CheckBox Content="Hardware acceleration (D3D11VA, fallback: software)" IsChecked="{Binding HardwareAcceleration}"/>
+            <CheckBox Content="Enable audio (mirror sound → default output)" IsChecked="{Binding AudioEnabled}"/>
+
+            <Label Content="Maximum FPS" Margin="0,8,0,0"/>
+            <StackPanel Orientation="Horizontal">
+                <Slider Width="220" Minimum="15" Maximum="120" TickFrequency="15" IsSnapToTickEnabled="True"
+                        Value="{Binding MaxFps, UpdateSourceTrigger=PropertyChanged}"/>
+                <TextBlock Text="{Binding MaxFps}" Margin="8,0,0,0" VerticalAlignment="Center" Width="40"/>
+            </StackPanel>
+
+            <Label Content="Video scaling" Margin="0,8,0,0"/>
+            <ComboBox SelectedValue="{Binding VideoScaling}" SelectedValuePath="Content" Width="200" HorizontalAlignment="Left">
+                <ComboBoxItem Content="Fit"/>
+                <ComboBoxItem Content="Fill"/>
+                <ComboBoxItem Content="Stretch"/>
+            </ComboBox>
+
+            <Label Content="Authentication mode" Margin="0,8,0,0"/>
+            <ComboBox SelectedValue="{Binding AuthMode}" SelectedValuePath="Content" Width="200" HorizontalAlignment="Left">
+                <ComboBoxItem Content="Open"/>
+                <ComboBoxItem Content="Pin"/>
+            </ComboBox>
+            <TextBlock Text="Pin mode is reserved for a future release; pairing currently uses the standard AirPlay handshake."
+                       Foreground="{StaticResource DimBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
+
+            <Label Content="Logging level" Margin="0,8,0,0"/>
+            <ComboBox SelectedValue="{Binding LogLevel}" SelectedValuePath="Content" Width="200" HorizontalAlignment="Left">
+                <ComboBoxItem Content="Trace"/>
+                <ComboBoxItem Content="Debug"/>
+                <ComboBoxItem Content="Info"/>
+                <ComboBoxItem Content="Warning"/>
+                <ComboBoxItem Content="Error"/>
+            </ComboBox>
+
+            <Button Content="Fix Windows Firewall (requires admin)" Command="{Binding FixFirewallCommand}" Margin="0,16,0,0"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,16,0,0">
+                <Button Content="Cancel" Width="90" Click="OnCancel"/>
+                <Button Content="Save" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSave"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Window>

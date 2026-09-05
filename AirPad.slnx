@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/AirPad.Core/AirPad.Core.csproj" />
+    <Project Path="src/AirPad/AirPad.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AirPad.Core.Tests/AirPad.Core.Tests.csproj" />
+  </Folder>
+</Solution>
