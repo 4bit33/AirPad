@@ -246,7 +246,7 @@ public sealed class AirPlayRequestHandler
             ["statusFlags"] = 4,
             ["keepAliveLowPower"] = true,
             ["sourceVersion"] = "220.68",
-            ["pk"] = "29fbb183a58b466e05b9ab667b3c429d18a6b785637333d3f0f3a34baa89f45c",
+            ["pk"] = Convert.ToHexString(_pairing.ServerPublicKey).ToLowerInvariant(),
             ["keepAliveSendStatsAsBody"] = true,
             ["deviceID"] = _deviceId,
             ["model"] = "AppleTV5,3",
@@ -428,7 +428,12 @@ public sealed class AirPlayRequestHandler
         if (plist.ContainsKey("et"))
             _log.Debug($"SETUP session et={PlistLong(plist["et"])}");
         if (plist.ContainsKey("ekey") && plist["ekey"] is byte[] ekey)
+        {
             session.AesKey = ekey;
+            // The iPad reuses Active-Remote across connections, so this Session may still hold the AES key
+            // derived from the previous handshake; the video/audio paths only derive it when it is null.
+            session.DecryptedAesKey = null;
+        }
         if (plist.ContainsKey("eiv") && plist["eiv"] is byte[] eiv)
             session.AesIv = eiv;
         if (plist.ContainsKey("isScreenMirroringSession"))

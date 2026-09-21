@@ -46,6 +46,10 @@ public sealed class MirrorStreamHandler
         }
 
         var cipher = CreateStreamCipher(session.DecryptedAesKey, session.EcdhShared ?? Array.Empty<byte>(), session.StreamConnectionId ?? "0");
+        // Per-stream CTR state: the handler outlives streams, a leftover keystream tail would garble the next one.
+        var carry = new byte[16];
+        int carryCount = 0;
+        long gateDrops = 0;
         _log.Info("Video stream started");
         _log.Info("Decoder initialized (H.264 Annex-B gate)");
 
@@ -107,18 +111,18 @@ public sealed class MirrorStreamHandler
                     if (!session.Pts.HasValue)
                         session.Pts = mirrorHeader.PayloadPts;
 
-                    var decrypted = DecryptPayload(cipher, payload);
+                    var decrypted = DecryptPayload(cipher, carry, ref carryCount, payload);
                     var packet = H264Gate.BuildDecoderPacket(decrypted, session.SpsPps, out bool isIdr);
                     if (packet == null)
                     {
                         // Wrong stream key (or corrupt data) shows up exactly
                         // like this: headers parse, payloads never gate.
                         // Never spam: one line per 200 consecutive drops.
-                        if (++_gateDrops % 200 == 1)
-                            _log.Debug($"Mirror: dropping invalid video payloads (x{_gateDrops}) — wrong stream key?");
+                        if (++gateDrops % 200 == 1)
+                            _log.Debug($"Mirror: dropping invalid video payloads (x{gateDrops}) — wrong stream key?");
                         continue;
                     }
-                    _gateDrops = 0;
+                    gateDrops = 0;
 
                     H264Received?.Invoke(new H264Packet
                     {
@@ -233,33 +237,29 @@ public sealed class MirrorStreamHandler
         return result;
     }
 
-    private byte[] _carry = new byte[16];
-    private int _carryCount;
-    private long _gateDrops;
-
-    private byte[] DecryptPayload(IBufferedCipher cipher, byte[] payload)
+    private static byte[] DecryptPayload(IBufferedCipher cipher, byte[] carry, ref int carryCount, byte[] payload)
     {
         // Streaming AES-CTR with 16-byte carry-over between payloads
         // (matches UxPlay/raop_rtp_mirror behaviour).
-        if (_carryCount > 0)
+        if (carryCount > 0)
         {
-            for (int i = 0; i < _carryCount; i++)
-                payload[i] = (byte)(payload[i] ^ _carry[(16 - _carryCount) + i]);
+            for (int i = 0; i < carryCount; i++)
+                payload[i] = (byte)(payload[i] ^ carry[(16 - carryCount) + i]);
         }
 
-        int blocks = ((payload.Length - _carryCount) / 16) * 16;
+        int blocks = ((payload.Length - carryCount) / 16) * 16;
         if (blocks > 0)
-            cipher.ProcessBytes(payload, _carryCount, blocks, payload, _carryCount);
+            cipher.ProcessBytes(payload, carryCount, blocks, payload, carryCount);
 
-        int rest = (payload.Length - _carryCount) % 16;
-        _carryCount = 0;
+        int rest = (payload.Length - carryCount) % 16;
+        carryCount = 0;
         if (rest > 0)
         {
-            Array.Clear(_carry, 0, _carry.Length);
-            Buffer.BlockCopy(payload, payload.Length - rest, _carry, 0, rest);
-            cipher.ProcessBytes(_carry, 0, 16, _carry, 0);
-            Buffer.BlockCopy(_carry, 0, payload, payload.Length - rest, rest);
-            _carryCount = 16 - rest;
+            Array.Clear(carry, 0, carry.Length);
+            Buffer.BlockCopy(payload, payload.Length - rest, carry, 0, rest);
+            cipher.ProcessBytes(carry, 0, 16, carry, 0);
+            Buffer.BlockCopy(carry, 0, payload, payload.Length - rest, rest);
+            carryCount = 16 - rest;
         }
 
         return payload;

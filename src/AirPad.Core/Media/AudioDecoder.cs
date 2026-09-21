@@ -9,15 +9,16 @@ namespace AirPad.Core.Media;
 /// Decodes RAOP audio payloads (AAC-ELD mirror audio, AAC, ALAC music)
 /// into 16-bit stereo PCM at 44100 Hz using FFmpeg.
 /// </summary>
-public sealed unsafe class AudioDecoder : IDisposable
+public unsafe class AudioDecoder : IDisposable
 {
     private readonly AirPadLogger _log;
+    private readonly object _gate = new(); // Decode (playback thread) vs Close/Dispose (request thread): the native context must not be freed mid-call
     private AVCodecContext* _ctx;
     private SwrContext* _swr;
     private AudioFormat _format = AudioFormat.Unknown;
     private bool _disposed;
 
-    public bool IsOpen => _ctx != null;
+    public virtual bool IsOpen => _ctx != null;
     public AudioFormat Format => _format;
 
     public AudioDecoder(AirPadLogger log)
@@ -95,21 +96,24 @@ public sealed unsafe class AudioDecoder : IDisposable
     /// Decodes one decrypted RTP payload into PCM chunks.
     /// Returns an empty list when the payload cannot be decoded.
     /// </summary>
-    public List<PcmPacket> Decode(byte[] payload, uint timestamp)
+    public virtual List<PcmPacket> Decode(byte[] payload, uint timestamp)
     {
         var output = new List<PcmPacket>(2);
-        if (_ctx == null || _disposed || payload == null || payload.Length == 0)
-            return output;
+        lock (_gate)
+        {
+            if (_ctx == null || _disposed || payload == null || payload.Length == 0)
+                return output;
 
-        // Some senders prefix AAC access units with a 2-byte AU header.
-        // Try the raw payload first, then the payload without the header.
-        if (TryDecodeOnce(payload, timestamp, output) || payload.Length <= 2)
-            return output;
+            // Some senders prefix AAC access units with a 2-byte AU header.
+            // Try the raw payload first, then the payload without the header.
+            if (TryDecodeOnce(payload, timestamp, output) || payload.Length <= 2)
+                return output;
 
-        var trimmed = new byte[payload.Length - 2];
-        Buffer.BlockCopy(payload, 2, trimmed, 0, trimmed.Length);
-        TryDecodeOnce(trimmed, timestamp, output);
-        return output;
+            var trimmed = new byte[payload.Length - 2];
+            Buffer.BlockCopy(payload, 2, trimmed, 0, trimmed.Length);
+            TryDecodeOnce(trimmed, timestamp, output);
+            return output;
+        }
     }
 
     private bool TryDecodeOnce(byte[] data, uint timestamp, List<PcmPacket> output)
@@ -232,19 +236,22 @@ public sealed unsafe class AudioDecoder : IDisposable
 
     private void Close()
     {
-        if (_swr != null)
+        lock (_gate)
         {
-            var swr = _swr;
-            _swr = null;
-            ffmpeg.swr_free(&swr);
+            if (_swr != null)
+            {
+                var swr = _swr;
+                _swr = null;
+                ffmpeg.swr_free(&swr);
+            }
+            if (_ctx != null)
+            {
+                var ctx = _ctx;
+                _ctx = null;
+                ffmpeg.avcodec_free_context(&ctx);
+            }
+            _format = AudioFormat.Unknown;
         }
-        if (_ctx != null)
-        {
-            var ctx = _ctx;
-            _ctx = null;
-            ffmpeg.avcodec_free_context(&ctx);
-        }
-        _format = AudioFormat.Unknown;
     }
 
     public void Dispose()

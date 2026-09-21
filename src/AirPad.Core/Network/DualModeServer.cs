@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
@@ -25,6 +26,7 @@ public sealed class DualModeServer : IDisposable
     private readonly Action<Session>? _mirrorConnected;
     private readonly Action<Session>? _mirrorDisconnected;
 
+    private readonly ConcurrentDictionary<TcpClient, byte> _open = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private bool _disposed;
@@ -65,6 +67,15 @@ public sealed class DualModeServer : IDisposable
         return Task.CompletedTask;
     }
 
+    /// <summary>Hangs up every live connection (control and mirror): the iPad sees the socket close and stops mirroring.</summary>
+    public void CloseAllClients()
+    {
+        foreach (var client in _open.Keys)
+        {
+            try { client.Close(); } catch { }
+        }
+    }
+
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested && _listener != null)
@@ -94,6 +105,7 @@ public sealed class DualModeServer : IDisposable
             }
             catch { }
 
+            TcpControlServer.TuneSocket(client);
             _ = Task.Run(() => RouteClientAsync(client, ct), ct);
         }
     }
@@ -102,6 +114,7 @@ public sealed class DualModeServer : IDisposable
     {
         string remote = "?";
         try { remote = client.Client.RemoteEndPoint?.ToString() ?? "?"; } catch { }
+        _open[client] = 0;
 
         try
         {
@@ -189,6 +202,10 @@ public sealed class DualModeServer : IDisposable
         catch (Exception ex)
         {
             _log.Debug($"Connection {remote} on port {_port} ended: {ex.Message}");
+        }
+        finally
+        {
+            _open.TryRemove(client, out _);
         }
     }
 

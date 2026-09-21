@@ -26,6 +26,7 @@ public class TcpControlServer : IDisposable
     private readonly AirPadLogger _log;
     private readonly Func<Request, Response, CancellationToken, Task> _onRequest;
     private readonly ConcurrentDictionary<string, Task> _clients = new();
+    private readonly ConcurrentDictionary<TcpClient, byte> _open = new();
     private TcpListener? _listener;
     private CancellationTokenSource? _cts;
     private bool _disposed;
@@ -67,6 +68,15 @@ public class TcpControlServer : IDisposable
         _clients.Clear();
     }
 
+    /// <summary>Hangs up every live connection: the iPad sees the socket close and stops mirroring.</summary>
+    public void CloseAllClients()
+    {
+        foreach (var client in _open.Keys)
+        {
+            try { client.Close(); } catch { }
+        }
+    }
+
     private async Task AcceptLoopAsync(CancellationToken ct)
     {
         while (!ct.IsCancellationRequested && _listener != null)
@@ -99,6 +109,8 @@ public class TcpControlServer : IDisposable
             }
             catch { }
 
+            TuneSocket(client);
+            _open[client] = 0;
             var id = remote ?? Guid.NewGuid().ToString("N");
             var task = HandleClientAsync(client, id, ct);
             _clients[id] = task;
@@ -121,6 +133,7 @@ public class TcpControlServer : IDisposable
         }
         finally
         {
+            _open.TryRemove(client, out _);
             _clients.TryRemove(id, out _);
             _log.Info($"Device disconnected ({id})");
         }
@@ -140,14 +153,15 @@ public class TcpControlServer : IDisposable
 
         while (!ct.IsCancellationRequested && client.Connected)
         {
-            if (pending.Count > 1024 * 1024)
+            // TryExtractRequest consumes on success, so it must be called exactly once per iteration.
+            if (!TryExtractRequest(pending, out var rawRequest))
             {
-                _log.Warn("Oversized pending buffer; resetting connection.");
-                break;
-            }
+                if (pending.Count > 1024 * 1024)
+                {
+                    _log.Warn("Oversized pending buffer; resetting connection.");
+                    break;
+                }
 
-            if (pending.Count == 0)
-            {
                 int read;
                 try
                 {
@@ -158,67 +172,45 @@ public class TcpControlServer : IDisposable
                 if (read <= 0)
                     break;
                 pending.AddRange(readBuffer.Take(read));
-            }
-            else if (!TryExtractRequest(pending, out _))
-            {
-                // Need more bytes for a complete request.
-                if (!stream.DataAvailable)
-                {
-                    int read;
-                    try
-                    {
-                        read = await stream.ReadAsync(readBuffer.AsMemory(0, readBuffer.Length), ct).ConfigureAwait(false);
-                    }
-                    catch (OperationCanceledException) { break; }
-                    catch (IOException) { break; }
-                    if (read <= 0)
-                        break;
-                    pending.AddRange(readBuffer.Take(read));
-                    continue;
-                }
-                await Task.Delay(5, ct).ConfigureAwait(false);
                 continue;
             }
 
-            while (TryExtractRequest(pending, out var rawRequest))
+            var hex = BitConverter.ToString(rawRequest).Replace("-", "", StringComparison.Ordinal);
+            Request request;
+            try
             {
-                var hex = BitConverter.ToString(rawRequest).Replace("-", "", StringComparison.Ordinal);
-                Request request;
-                try
-                {
-                    request = new Request(hex);
-                }
-                catch (Exception ex)
-                {
-                    _log.Warn($"Malformed request ({rawRequest.Length} bytes): {ex.Message}");
-                    continue;
-                }
+                request = new Request(hex);
+            }
+            catch (Exception ex)
+            {
+                _log.Warn($"Malformed request ({rawRequest.Length} bytes): {ex.Message}");
+                continue;
+            }
 
-                if (!request.IsValid)
-                {
-                    _log.Warn("Received invalid request; ignoring.");
-                    continue;
-                }
+            if (!request.IsValid)
+            {
+                _log.Warn("Received invalid request; ignoring.");
+                continue;
+            }
 
-                var response = request.GetBaseResponse();
-                try
-                {
-                    await _onRequest(request, response, ct).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _log.Error($"Request handler failed for {request.Type} {request.Path}: {ex.GetType().Name}: {ex.Message}", ex);
-                    _log.Debug(ex.ToString());
-                    response.StatusCode = StatusCode.INTERNALSERVERERROR;
-                }
+            var response = request.GetBaseResponse();
+            try
+            {
+                await _onRequest(request, response, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _log.Error($"Request handler failed for {request.Type} {request.Path}: {ex.GetType().Name}: {ex.Message}", ex);
+                _log.Debug(ex.ToString());
+                response.StatusCode = StatusCode.INTERNALSERVERERROR;
+            }
 
-                await SendResponseAsync(stream, response, ct).ConfigureAwait(false);
+            await SendResponseAsync(stream, response, ct).ConfigureAwait(false);
 
-                if (Volatile.Read(ref _stopConnection))
-                {
-                    Volatile.Write(ref _stopConnection, false);
-                    return;
-                }
+            if (Volatile.Read(ref _stopConnection))
+            {
+                Volatile.Write(ref _stopConnection, false);
+                return;
             }
         }
     }
@@ -294,6 +286,26 @@ public class TcpControlServer : IDisposable
         }
         catch (IOException) { }
         catch (OperationCanceledException) { }
+    }
+
+    /// <summary>Options every accepted AirPlay socket wants (best effort).</summary>
+    internal static void TuneSocket(TcpClient client)
+    {
+        try
+        {
+            // Handshake responses are written as header + body: without NoDelay the body waits for the
+            // peer's delayed ACK (tens to hundreds of ms per request).
+            client.NoDelay = true;
+
+            // A vanished iPad (Wi-Fi off, sleep) sends no FIN. Keepalive turns that into a read error
+            // in ~20 s instead of a zombie session that blocks the next connection.
+            var socket = client.Client;
+            socket.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.KeepAlive, true);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveTime, 10);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveInterval, 3);
+            socket.SetSocketOption(SocketOptionLevel.Tcp, SocketOptionName.TcpKeepAliveRetryCount, 3);
+        }
+        catch { }
     }
 
     internal static bool LooksLikeControlRequest(byte[] data, int length)

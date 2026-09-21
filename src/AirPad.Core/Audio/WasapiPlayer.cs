@@ -60,7 +60,9 @@ public sealed class WasapiPlayer : IDisposable
                 {
                     BufferDuration = TimeSpan.FromMilliseconds(400),
                     DiscardOnBufferOverflow = true,
-                    ReadFully = false,
+                    // WasapiOut treats a 0-byte read as end-of-stream and kills its play thread for good.
+                    // The provider is empty at Play() (RTP has not started yet), so pad with silence.
+                    ReadFully = true,
                 };
                 _output = new WasapiOut();
                 _output.Init(_provider);

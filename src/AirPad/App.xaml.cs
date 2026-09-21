@@ -36,14 +36,10 @@ public partial class App : Application
         };
     }
 
-    protected override async void OnExit(ExitEventArgs e)
+    protected override void OnExit(ExitEventArgs e)
     {
-        try
-        {
-            if (Manager.IsRunning)
-                await Manager.StopAsync();
-        }
-        catch { }
+        // Synchronous on purpose: an async void OnExit returns at the first await and the process exits
+        // before the mDNS goodbye is sent, so the iPad keeps listing a dead receiver.
         try { Manager.Dispose(); } catch { }
         try { Logger.Dispose(); } catch { }
         base.OnExit(e);

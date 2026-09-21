@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Runtime.InteropServices;
 using AirPad.Core.Logging;
 using AirPad.Core.Video;
 using FFmpeg.AutoGen;
@@ -5,7 +7,7 @@ using FFmpeg.AutoGen;
 namespace AirPad.Core.Media;
 
 /// <summary>
-/// Low-latency H.264 → BGR24 decoder.
+/// Low-latency H.264 → BGRA decoder.
 /// Tries D3D11VA hardware decoding when enabled and available,
 /// otherwise falls back to multi-threaded software decoding.
 /// Single ownership per instance; call <see cref="Feed"/> from the
@@ -16,9 +18,9 @@ public sealed unsafe class H264Decoder : IDisposable
 {
     private readonly AirPadLogger _log;
     private readonly bool _preferHardware;
+    private readonly object _gate = new(); // Feed (mirror thread) vs Flush/Close (request/UI threads): a native context freed mid-call crashes the process
 
     private AVCodecContext* _ctx;
-    private AVCodecParserContext* _parser;
     private SwsContext* _sws;
     private AVFrame* _hwFrame;
     private int _swsSrcW;
@@ -58,7 +60,6 @@ public sealed unsafe class H264Decoder : IDisposable
             return false;
         }
 
-        _parser = ffmpeg.av_parser_init((int)AVCodecID.AV_CODEC_ID_H264);
         _ctx = ffmpeg.avcodec_alloc_context3(codec);
         if (_ctx == null)
         {
@@ -124,75 +125,61 @@ public sealed unsafe class H264Decoder : IDisposable
 
     /// <summary>
     /// Feeds one Annex-B access unit. Returns zero or more decoded frames
-    /// (normally 0 or 1 for mirror streams).
+    /// (normally 0 or 1 for mirror streams). With <paramref name="convert"/> false the
+    /// frame is still decoded (later frames reference it) but the costly GPU readback and
+    /// colour conversion are skipped and nothing is returned.
     /// </summary>
-    public List<VideoFrame> Feed(byte[] annexb, DateTime receivedUtc)
+    public List<VideoFrame> Feed(byte[] annexb, DateTime receivedUtc, bool convert = true)
     {
         var frames = new List<VideoFrame>(2);
-        if (_ctx == null || _disposed || annexb == null || annexb.Length == 0)
+        if (annexb == null || annexb.Length == 0)
             return frames;
 
-        fixed (byte* data = annexb)
+        lock (_gate)
         {
-            byte* input = data;
-            int inputSize = annexb.Length;
+            if (_ctx == null || _disposed)
+                return frames;
 
-            while (inputSize > 0)
+            // Every mirror payload is exactly one access unit, so it goes straight to the decoder.
+            // (av_parser_parse2 would hold each frame back until the *next* one starts: a frame of extra
+            // latency, and the last frame of a burst stays invisible until the screen changes again.)
+            var packet = ffmpeg.av_packet_alloc();
+            if (packet == null)
+                return frames;
+            try
             {
-                byte* outData = null;
-                int outSize = 0;
-                int consumed = _parser != null
-                    ? ffmpeg.av_parser_parse2(_parser, _ctx, &outData, &outSize, input, inputSize,
-                        ffmpeg.AV_NOPTS_VALUE, ffmpeg.AV_NOPTS_VALUE, 0)
-                    : inputSize;
+                // av_new_packet returns a padded, ref-counted buffer, which the bitstream readers expect.
+                if (ffmpeg.av_new_packet(packet, annexb.Length) < 0)
+                    return frames;
+                Marshal.Copy(annexb, 0, (IntPtr)packet->data, annexb.Length);
+                if (ffmpeg.avcodec_send_packet(_ctx, packet) < 0)
+                    return frames;
 
-                if (consumed < 0)
-                    break;
-                input += consumed;
-                inputSize -= consumed;
-
-                if (outSize <= 0)
-                    continue;
-
-                var packet = ffmpeg.av_packet_alloc();
-                if (packet == null)
-                    break;
-                try
+                while (true)
                 {
-                    packet->data = outData;
-                    packet->size = outSize;
-                    if (ffmpeg.avcodec_send_packet(_ctx, packet) < 0)
-                        continue;
-
-                    while (true)
+                    var frame = ffmpeg.av_frame_alloc();
+                    if (frame == null)
+                        break;
+                    try
                     {
-                        var frame = ffmpeg.av_frame_alloc();
-                        if (frame == null)
-                            break;
-                        try
-                        {
-                            int ret = ffmpeg.avcodec_receive_frame(_ctx, frame);
-                            if (ret == ffmpeg.AVERROR(ffmpeg.EAGAIN) || ret == ffmpeg.AVERROR_EOF)
-                                break;
-                            if (ret < 0)
-                                break;
+                        if (ffmpeg.avcodec_receive_frame(_ctx, frame) < 0)
+                            break; // EAGAIN / EOF / error: nothing more for this packet
+                        if (!convert)
+                            continue;
 
-                            var converted = ConvertFrame(frame, receivedUtc);
-                            if (converted != null)
-                                frames.Add(converted);
-                        }
-                        finally
-                        {
-                            ffmpeg.av_frame_free(&frame);
-                        }
+                        var converted = ConvertFrame(frame, receivedUtc);
+                        if (converted != null)
+                            frames.Add(converted);
+                    }
+                    finally
+                    {
+                        ffmpeg.av_frame_free(&frame);
                     }
                 }
-                finally
-                {
-                    packet->data = null;
-                    packet->size = 0;
-                    ffmpeg.av_packet_free(&packet);
-                }
+            }
+            finally
+            {
+                ffmpeg.av_packet_free(&packet);
             }
         }
 
@@ -225,9 +212,11 @@ public sealed unsafe class H264Decoder : IDisposable
             {
                 if (_sws != null)
                     ffmpeg.sws_freeContext(_sws);
+                // BGRA + no ACCURATE_RND: no scaling happens here, and this is ~8x cheaper than BGR24 with
+                // ACCURATE_RND (1.7 ms → 0.2 ms per 720p frame) and is WPF's native upload format.
                 _sws = ffmpeg.sws_getContext(width, height, (AVPixelFormat)src->format,
-                    width, height, AVPixelFormat.AV_PIX_FMT_BGR24,
-                    (int)(SwsFlags.SWS_FAST_BILINEAR | SwsFlags.SWS_ACCURATE_RND), null, null, null);
+                    width, height, AVPixelFormat.AV_PIX_FMT_BGRA,
+                    (int)SwsFlags.SWS_FAST_BILINEAR, null, null, null);
                 if (_sws == null)
                     return null;
                 _swsSrcW = width;
@@ -235,8 +224,8 @@ public sealed unsafe class H264Decoder : IDisposable
                 _swsSrcFmt = (AVPixelFormat)src->format;
             }
 
-            int stride = width * 3;
-            var pixels = new byte[stride * height];
+            int stride = width * 4;
+            var pixels = ArrayPool<byte>.Shared.Rent(stride * height);
             fixed (byte* dst = pixels)
             {
                 byte*[] dstData = { dst };
@@ -250,6 +239,7 @@ public sealed unsafe class H264Decoder : IDisposable
                 Height = height,
                 Stride = stride,
                 Pixels = pixels,
+                Pooled = true,
                 NetworkReceivedUtc = receivedUtc,
                 DecodedUtc = DateTime.UtcNow,
                 HardwareDecoded = _hardwareActive,
@@ -268,39 +258,40 @@ public sealed unsafe class H264Decoder : IDisposable
 
     public void Flush()
     {
-        if (_ctx != null)
-            ffmpeg.avcodec_flush_buffers(_ctx);
+        lock (_gate)
+        {
+            if (_ctx != null)
+                ffmpeg.avcodec_flush_buffers(_ctx);
+        }
     }
 
     private void Close()
     {
-        if (_parser != null)
+        lock (_gate)
         {
-            ffmpeg.av_parser_close(_parser);
-            _parser = null;
-        }
-        if (_sws != null)
-        {
-            ffmpeg.sws_freeContext(_sws);
-            _sws = null;
-        }
-        if (_hwFrame != null)
-        {
-            var frame = _hwFrame;
-            _hwFrame = null;
-            ffmpeg.av_frame_free(&frame);
-        }
-        if (_ctx != null)
-        {
-            var ctx = _ctx;
-            _ctx = null;
-            ffmpeg.avcodec_free_context(&ctx);
-        }
-        if (_hwDeviceCtx != null)
-        {
-            var device = _hwDeviceCtx;
-            _hwDeviceCtx = null;
-            ffmpeg.av_buffer_unref(&device);
+            if (_sws != null)
+            {
+                ffmpeg.sws_freeContext(_sws);
+                _sws = null;
+            }
+            if (_hwFrame != null)
+            {
+                var frame = _hwFrame;
+                _hwFrame = null;
+                ffmpeg.av_frame_free(&frame);
+            }
+            if (_ctx != null)
+            {
+                var ctx = _ctx;
+                _ctx = null;
+                ffmpeg.avcodec_free_context(&ctx);
+            }
+            if (_hwDeviceCtx != null)
+            {
+                var device = _hwDeviceCtx;
+                _hwDeviceCtx = null;
+                ffmpeg.av_buffer_unref(&device);
+            }
         }
     }
 

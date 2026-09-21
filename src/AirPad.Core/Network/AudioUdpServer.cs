@@ -37,6 +37,7 @@ public sealed class AudioUdpServer : IDisposable
     private readonly object _sessionGate = new();
     private Session? _session;
     private AudioDecoder? _decoder;
+    private IBufferedCipher? _cipher; // derived once per attached session; used by the playback thread only
     private bool _decoderReady;
 
     private readonly object _windowGate = new();
@@ -78,6 +79,7 @@ public sealed class AudioUdpServer : IDisposable
         {
             _session = session;
             _decoder = decoder;
+            _cipher = null;
             _decoderReady = decoder.IsOpen;
         }
         Flush(-1);
@@ -105,15 +107,16 @@ public sealed class AudioUdpServer : IDisposable
     public async Task StopAsync()
     {
         try { _cts?.Cancel(); } catch { }
+        // ReceiveFrom ignores the token: closing the sockets is what unblocks the receive loops.
+        try { _controlSocket?.Close(); } catch { }
+        try { _dataSocket?.Close(); } catch { }
         foreach (var task in new[] { _controlTask, _dataTask, _playTask })
         {
             if (task != null)
             {
-                try { await task.WaitAsync(TimeSpan.FromSeconds(2)); } catch { }
+                try { await task.WaitAsync(TimeSpan.FromSeconds(2)).ConfigureAwait(false); } catch { }
             }
         }
-        try { _controlSocket?.Close(); } catch { }
-        try { _dataSocket?.Close(); } catch { }
         _controlSocket = null;
         _dataSocket = null;
     }
@@ -163,12 +166,12 @@ public sealed class AudioUdpServer : IDisposable
                 _syncNtp = ((ulong)(uint)ReadI32(buffer, 8) << 32) | (uint)ReadI32(buffer, 12);
                 _syncRtp = (uint)((buffer[16] << 24) | (buffer[17] << 16) | (buffer[18] << 8) | buffer[19]);
             }
-            else if (type == 0x56 && received > 4)
+            else if (type == 0x56 && received > 16)
             {
-                // Retransmit response carrying audio: queue like data.
-                var payload = new byte[received];
-                Buffer.BlockCopy(buffer, 0, payload, 0, received);
-                QueueDatagram(payload, received);
+                // Retransmit response: a 4-byte header, then the original RTP packet.
+                var payload = new byte[received - 4];
+                Buffer.BlockCopy(buffer, 4, payload, 0, payload.Length);
+                QueueDatagram(payload, payload.Length);
             }
             // 0x55 resend requests from the client are answered by the data loop.
         }
@@ -202,17 +205,13 @@ public sealed class AudioUdpServer : IDisposable
 
     private void QueueDatagram(byte[] datagram, int length)
     {
-        Session? session;
-        AudioDecoder? decoder;
         lock (_sessionGate)
         {
-            session = _session;
-            decoder = _decoder;
+            if (_session?.DecryptedAesKey == null || _session.EcdhShared == null || _session.AesIv == null)
+                return;
+            if (_decoder == null || !_decoderReady)
+                return;
         }
-        if (session?.DecryptedAesKey == null || session.EcdhShared == null || session.AesIv == null)
-            return;
-        if (decoder == null || !_decoderReady)
-            return;
 
         if (length < 12 || length > MaxDatagram)
             return;
@@ -229,40 +228,7 @@ public sealed class AudioUdpServer : IDisposable
 
         uint timestamp = (uint)((datagram[4] << 24) | (datagram[5] << 16) | (datagram[6] << 8) | datagram[7]);
 
-        // AES-CBC decrypt the payload (16-byte blocks; tail copied raw).
-        int payloadSize = length - 12;
-        var raw = new byte[payloadSize];
-        try
-        {
-            var cipher = CreateAudioCipher(session.DecryptedAesKey, session.EcdhShared, session.AesIv);
-            int blocks = payloadSize / 16 * 16;
-            if (blocks > 0)
-                cipher.ProcessBytes(datagram, 12, blocks, datagram, 12);
-            Buffer.BlockCopy(datagram, 12, raw, 0, payloadSize);
-        }
-        catch
-        {
-            return;
-        }
-
-        List<AirPad.Core.Audio.PcmPacket> decoded;
-        try
-        {
-            decoded = decoder.Decode(raw, timestamp);
-        }
-        catch
-        {
-            return;
-        }
-        if (decoded.Count == 0)
-        {
-            Interlocked.Increment(ref _decodedEmpty);
-            return;
-        }
-        Interlocked.Add(ref _decodedOk, decoded.Count);
-        if (Interlocked.Increment(ref _firstDecodedLogged) == 1)
-            _log.Info("Audio decoding works (compressed → PCM 44.1 kHz stereo)");
-
+        // Only buffer here: decrypt + decode happen after reordering, on the playback thread.
         lock (_windowGate)
         {
             if (!_haveExpected)
@@ -277,7 +243,7 @@ public sealed class AudioUdpServer : IDisposable
 
             if (!_window.ContainsKey(seq))
             {
-                _window[seq] = new PendingAudio(seq, timestamp, decoded);
+                _window[seq] = new PendingAudio(seq, timestamp, datagram);
                 Interlocked.Increment(ref _stored);
             }
 
@@ -318,7 +284,7 @@ public sealed class AudioUdpServer : IDisposable
 
             if (next != null)
             {
-                foreach (var pcm in next.Packets)
+                foreach (var pcm in DecodeBuffered(next))
                 {
                     Interlocked.Increment(ref _played);
                     PcmReady?.Invoke(new PcmPacketShim(pcm.Data, pcm.Timestamp));
@@ -329,6 +295,52 @@ public sealed class AudioUdpServer : IDisposable
                 try { await Task.Delay(5, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
             }
+        }
+    }
+
+    /// <summary>
+    /// Decrypts (AES-CBC, 16-byte blocks; tail copied raw) and decodes one buffered datagram.
+    /// Runs on the playback thread only, in sequence order: AAC-ELD is stateful, so decoding in arrival
+    /// order (or from several threads) corrupts the stream.
+    /// </summary>
+    private List<AirPad.Core.Audio.PcmPacket> DecodeBuffered(PendingAudio audio)
+    {
+        AudioDecoder? decoder;
+        IBufferedCipher? cipher = null;
+        lock (_sessionGate)
+        {
+            decoder = _decoder;
+            if (_session?.DecryptedAesKey != null && _session.EcdhShared != null && _session.AesIv != null)
+                cipher = _cipher ??= CreateAudioCipher(_session.DecryptedAesKey, _session.EcdhShared, _session.AesIv);
+        }
+        if (decoder == null || cipher == null)
+            return [];
+
+        try
+        {
+            var datagram = audio.Datagram;
+            int payloadSize = datagram.Length - 12;
+            int blocks = payloadSize / 16 * 16;
+            cipher.Reset(); // every RTP packet restarts CBC at the session IV
+            if (blocks > 0)
+                cipher.ProcessBytes(datagram, 12, blocks, datagram, 12);
+            var raw = new byte[payloadSize];
+            Buffer.BlockCopy(datagram, 12, raw, 0, payloadSize);
+
+            var decoded = decoder.Decode(raw, audio.Timestamp);
+            if (decoded.Count == 0)
+            {
+                Interlocked.Increment(ref _decodedEmpty);
+                return decoded;
+            }
+            Interlocked.Add(ref _decodedOk, decoded.Count);
+            if (Interlocked.Increment(ref _firstDecodedLogged) == 1)
+                _log.Info("Audio decoding works (compressed → PCM 44.1 kHz stereo)");
+            return decoded;
+        }
+        catch
+        {
+            return [];
         }
     }
 
@@ -399,7 +411,7 @@ public sealed class AudioUdpServer : IDisposable
         try { _cts?.Dispose(); } catch { }
     }
 
-    private sealed record PendingAudio(ushort Seq, uint Timestamp, List<AirPad.Core.Audio.PcmPacket> Packets);
+    private sealed record PendingAudio(ushort Seq, uint Timestamp, byte[] Datagram);
 
     private sealed class SeqComparer : IComparer<ushort>
     {

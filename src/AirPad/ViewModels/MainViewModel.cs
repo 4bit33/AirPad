@@ -1,5 +1,6 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Net.NetworkInformation;
 using System.Runtime.CompilerServices;
 using System.Windows;
 using System.Windows.Input;
@@ -24,7 +25,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     private bool _disposed;
 
     private WriteableBitmap? _videoBitmap;
-    private int _renderPending;
+    private VideoFrame? _pendingFrame;
     private int _lastVideoW;
     private int _lastVideoH;
     private string _orientation = "—";
@@ -93,7 +94,24 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         RefreshStats();
         IpText = NetworkInfo.GetPrimaryIPv4()?.ToString() ?? "—";
         NetworkWarning = NetworkInfo.GetNetworkWarning() ?? "";
+        NetworkChange.NetworkAddressChanged += OnNetworkAddressChanged;
     }
+
+    private void OnNetworkAddressChanged(object? sender, EventArgs e) =>
+        _ = Task.Run(() =>
+        {
+            // Enumerating adapters takes ~15 ms: never on the UI thread that also paints the video.
+            var ip = NetworkInfo.GetPrimaryIPv4()?.ToString() ?? "—";
+            var warning = NetworkInfo.GetNetworkWarning() ?? "";
+            _dispatcher.BeginInvoke(() =>
+            {
+                IpText = ip;
+                NetworkWarning = warning;
+                OnPropertyChanged(nameof(IpText));
+                OnPropertyChanged(nameof(NetworkWarning));
+                OnPropertyChanged(nameof(HasNetworkWarning));
+            });
+        });
 
     public event EventHandler? FullscreenToggleRequested;
     public event EventHandler? ChromeToggleRequested;
@@ -218,7 +236,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     {
         const int width = 640;
         const int height = 480;
-        int stride = width * 3;
+        int stride = width * 4;
         var pixels = new byte[stride * height];
         int shift = _testPatternFrame++;
         byte[,] bars = { { 192, 0, 0 }, { 192, 192, 0 }, { 0, 192, 0 }, { 0, 192, 192 }, { 0, 0, 192 }, { 192, 0, 192 } };
@@ -227,7 +245,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             for (int x = 0; x < width; x++)
             {
                 int bar = ((x / 80) + shift / 10) % 8;
-                int o = y * stride + x * 3;
+                int o = y * stride + x * 4;
                 if (bar < 6)
                 {
                     pixels[o] = bars[bar, 0];
@@ -241,6 +259,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     pixels[o + 1] = v;
                     pixels[o + 2] = v;
                 }
+                pixels[o + 3] = 255;
             }
         }
         return new VideoFrame
@@ -285,13 +304,11 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         LatencyText = stats.FramesDecoded == 0 ? "—" : $"~{stats.LatencyMs:0} ms";
         CpuText = $"CPU {sys.CpuPercent:0}% · {sys.MemoryMb:0} MB";
         GpuText = stats.FramesDecoded == 0 && !IsStreaming ? "Idle" : sys.GpuStatus + (stats.HardwareDecoding ? "" : " (CPU decode)");
-        IpText = NetworkInfo.GetPrimaryIPv4()?.ToString() ?? "—";
         OnPropertyChanged(nameof(FpsText));
         OnPropertyChanged(nameof(ResolutionText));
         OnPropertyChanged(nameof(LatencyText));
         OnPropertyChanged(nameof(CpuText));
         OnPropertyChanged(nameof(GpuText));
-        OnPropertyChanged(nameof(IpText));
         // Device-driven changes (volume/mute from the iPad) must reach the slider.
         OnPropertyChanged(nameof(Volume));
         OnPropertyChanged(nameof(VolumeDb));
@@ -345,13 +362,21 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
 
     private void OnFrameReady(object? sender, VideoFrame frame)
     {
-        // Coalesce: never queue more than one pending render (lowest latency).
-        if (Interlocked.Exchange(ref _renderPending, 1) == 1)
-            return;
+        // Coalesce: never queue more than one pending render (lowest latency), and the newest frame wins.
+        // (Keeping the first one would leave a stale picture on screen once the source goes idle.)
+        var superseded = Interlocked.Exchange(ref _pendingFrame, frame);
+        if (superseded != null)
+        {
+            superseded.Dispose();
+            return; // a render is already scheduled and will pick up `frame`
+        }
         _ = _dispatcher.BeginInvoke(DispatcherPriority.Render, new Action(() =>
         {
-            Interlocked.Exchange(ref _renderPending, 0);
-            RenderFrame(frame);
+            var latest = Interlocked.Exchange(ref _pendingFrame, null);
+            if (latest == null)
+                return;
+            try { RenderFrame(latest); }
+            finally { latest.Dispose(); }
         }));
     }
 
@@ -361,7 +386,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         {
             if (VideoBitmap == null || _lastVideoW != frame.Width || _lastVideoH != frame.Height)
             {
-                VideoBitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgr24, null);
+                VideoBitmap = new WriteableBitmap(frame.Width, frame.Height, 96, 96, PixelFormats.Bgr32, null);
                 _lastVideoW = frame.Width;
                 _lastVideoH = frame.Height;
                 _log.Info($"Video rendering at {frame.Width}x{frame.Height} (hw={frame.HardwareDecoded})");
@@ -372,7 +397,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             {
                 if (frame.Stride == VideoBitmap.BackBufferStride)
                 {
-                    System.Runtime.InteropServices.Marshal.Copy(frame.Pixels, 0, VideoBitmap.BackBuffer, frame.Pixels.Length);
+                    System.Runtime.InteropServices.Marshal.Copy(frame.Pixels, 0, VideoBitmap.BackBuffer, frame.Stride * frame.Height);
                 }
                 else
                 {
@@ -380,7 +405,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
                     for (int y = 0; y < frame.Height; y++)
                     {
                         System.Runtime.InteropServices.Marshal.Copy(frame.Pixels, y * frame.Stride,
-                            VideoBitmap.BackBuffer + y * VideoBitmap.BackBufferStride, frame.Width * 3);
+                            VideoBitmap.BackBuffer + y * VideoBitmap.BackBufferStride, frame.Width * 4);
                     }
                 }
                 VideoBitmap.AddDirtyRect(rect);
@@ -417,6 +442,7 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             return;
         _disposed = true;
         _statsTimer.Stop();
+        NetworkChange.NetworkAddressChanged -= OnNetworkAddressChanged;
         _log.EntryAdded -= OnLogEntry;
     }
 }

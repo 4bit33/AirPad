@@ -18,7 +18,7 @@
 | network receiver | `MirrorStreamHandler`, `AudioUdpServer` | `Network/` |
 | video decoder | `H264Decoder` (FFmpeg D3D11VA→SW), `H264Gate` | `Media/`, `Video/` |
 | audio receiver | `AudioDecoder`, `WasapiPlayer` | `Media/`, `Audio/` |
-| renderer | WPF `WriteableBitmap` (Bgr24) + `Image` (Uniform) | `AirPad/ViewModels`, `MainWindow` |
+| renderer | WPF `WriteableBitmap` (Bgr32) + `Image` (Uniform) | `AirPad/ViewModels`, `MainWindow` |
 | UI | `MainWindow`, `SettingsWindow`, `MainViewModel` | `src/AirPad/` |
 | connection manager | `ConnectionManager` (автомат станів) | `Connection/` |
 | logging | `AirPadLogger` (`[INFO]`-формат, файл + UI) | `Logging/` |
@@ -62,5 +62,6 @@ TEARDOWN / розрив / Disconnect / Stop. Події: `StateChanged`,
   збираються під net10; BouncyCastle дає ті самі X25519/Ed25519.
 - **FFmpeg замість ручної збірки fdk-aac/ALAC**: один нативний рантайм для
   H.264 + AAC-ELD + AAC + ALAC; `FFmpegLoader` шукає DLL поруч з exe або в PATH.
-- **WriteableBitmap/Bgr24** замість D3DImage: на порядок простіше і надійно;
+- **WriteableBitmap/Bgr32** замість D3DImage: на порядок простіше і надійно (Bgr32 — рідний формат
+  завантаження в WPF, без конвертації на кожен кадр; буфери кадрів — з `ArrayPool`, не з LOH);
   нуль-копі D3D11-поверхонь — можлива оптимізація v2 (рендер і так GPU: WPF + D3D11VA-декод).

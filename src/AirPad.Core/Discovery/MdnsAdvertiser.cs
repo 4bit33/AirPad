@@ -27,11 +27,14 @@ public sealed class MdnsAdvertiser : IDisposable
         _log = log;
     }
 
-    public Task StartAsync(AirPadSettings settings)
+    /// <param name="publicKey">Receiver's Ed25519 public key (PairingService.ServerPublicKey): the advertised
+    /// <c>pk</c> must be the key that actually signs pair-verify, not a copy-pasted constant.</param>
+    public Task StartAsync(AirPadSettings settings, byte[] publicKey)
     {
         if (IsAdvertising)
             return Task.CompletedTask;
 
+        var pk = Convert.ToHexString(publicKey).ToLowerInvariant();
         var deviceId = (settings.DeviceId ?? "").Trim();
         if (!Regex.IsMatch(deviceId, "^(([0-9a-fA-F]{2}):){5}([0-9a-fA-F]{2})$"))
             throw new ArgumentException("DeviceId must be a MAC address like 11:22:33:44:55:66.", nameof(settings));
@@ -66,7 +69,7 @@ public sealed class MdnsAdvertiser : IDisposable
         airTunes.AddProperty("sv", "false");
         airTunes.AddProperty("ft", "0x5A7FFFF7,0x1E");
         airTunes.AddProperty("am", "AppleTV5,3");
-        airTunes.AddProperty("pk", "29fbb183a58b466e05b9ab667b3c429d18a6b785637333d3f0f3a34baa89f45e");
+        airTunes.AddProperty("pk", pk);
         airTunes.AddProperty("sf", "0x4");
         airTunes.AddProperty("tp", "UDP");
         airTunes.AddProperty("vn", "65537");
@@ -78,7 +81,7 @@ public sealed class MdnsAdvertiser : IDisposable
         airPlay.AddProperty("features", "0x5A7FFFF7,0x1E");
         airPlay.AddProperty("flags", "0x4");
         airPlay.AddProperty("model", "AppleTV5,3");
-        airPlay.AddProperty("pk", "29fbb183a58b466e05b9ab667b3c429d18a6b785637333d3f0f3a34baa89f45e");
+        airPlay.AddProperty("pk", pk);
         airPlay.AddProperty("pi", "aa072a95-0318-4ec3-b042-4992495877d3");
         airPlay.AddProperty("srcvers", "220.68");
         airPlay.AddProperty("vv", "2");

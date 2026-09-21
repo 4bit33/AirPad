@@ -80,7 +80,8 @@ AirPlay Mirroring** (той самий, що й AirPlay 1 mirror + розшир�
 - SPS/PPS приходять окремо (avcC-бокс) і підставляються перед IDR (NAL type 5).
 - Роздільність/орієнтація — з заголовка типу 1 (`WidthSource/HeightSource`)
   + парсинг SPS; зміна portrait↔landscape детектується на льоту.
-- Декодування: FFmpeg (D3D11VA → BGR24 → WPF), software-fallback.
+- Декодування: FFmpeg (D3D11VA → BGRA → WPF), software-fallback. Кожен payload — рівно
+  один access unit, тому йде в `avcodec_send_packet` напряму, без `av_parser`.
 
 ## 6. Формат аудіо
 

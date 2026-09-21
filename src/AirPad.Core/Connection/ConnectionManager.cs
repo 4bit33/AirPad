@@ -269,7 +269,7 @@ public sealed class ConnectionManager : IDisposable
         await _dualServer.StartAsync().ConfigureAwait(false);
 
         _mdns = new MdnsAdvertiser(_log);
-        await _mdns.StartAsync(Settings).ConfigureAwait(false);
+        await _mdns.StartAsync(Settings, _pairing.ServerPublicKey).ConfigureAwait(false);
 
         State = ReceiverState.WaitingForDevice;
         _log.Info("Waiting for device (open Screen Mirroring on the iPad)");
@@ -341,6 +341,9 @@ public sealed class ConnectionManager : IDisposable
         DeviceName = "";
         if (IsRunning)
             State = ReceiverState.WaitingForDevice;
+        // Resetting our state alone leaves the iPad streaming into a void: closing the sockets is the disconnect.
+        _controlServer?.CloseAllClients();
+        _dualServer?.CloseAllClients();
         return Task.CompletedTask;
     }
 
@@ -374,7 +377,8 @@ public sealed class ConnectionManager : IDisposable
         _log.Info("Device disconnected (mirror stream closed)");
         lock (_gate) _mirrorActive = false;
         VideoCleared?.Invoke(this, EventArgs.Empty);
-        if (IsRunning)
+        // Only step down from Streaming: after Disconnect/TEARDOWN(all) the state is already WaitingForDevice.
+        if (IsRunning && State == ReceiverState.Streaming)
             State = ReceiverState.Connected;
     }
 
@@ -413,11 +417,12 @@ public sealed class ConnectionManager : IDisposable
         if (_brightnessFallbackDone || !frame.HardwareDecoded)
             return false;
 
-        // Sparse sample of the green channel: ~1700 probes per 1080p frame.
+        // Sparse sample of the green channel: ~2000 probes per 1080p frame (pooled buffers are longer than the picture).
         var pixels = frame.Pixels;
+        int length = frame.Stride * frame.Height;
         long sum = 0;
         int n = 0;
-        for (int i = 1; i < pixels.Length; i += 3 * 997)
+        for (int i = 1; i < length; i += 4 * 997)
         {
             sum += pixels[i];
             n++;
@@ -491,8 +496,10 @@ public sealed class ConnectionManager : IDisposable
             return;
         }
 
-        // Max-FPS gate: shed non-IDR packets when the sender exceeds the cap.
-        if (!packet.IsIdr && Settings.MaxFps > 0)
+        // Max-FPS cap: every frame is still decoded (P-frames reference each other, so skipping one smears
+        // the picture until the next IDR), only the GPU readback + conversion + render of surplus frames is skipped.
+        bool render = true;
+        if (Settings.MaxFps > 0)
         {
             var now = DateTime.UtcNow.Ticks;
             var secondStart = Volatile.Read(ref _secondWindowStart);
@@ -501,17 +508,13 @@ public sealed class ConnectionManager : IDisposable
                 Volatile.Write(ref _secondWindowStart, now);
                 _secondWindowCount = 0;
             }
-            if (++_secondWindowCount > Settings.MaxFps)
-            {
-                VideoStats.OnFrameDropped();
-                return;
-            }
+            render = ++_secondWindowCount <= Settings.MaxFps;
         }
 
         List<VideoFrame> frames;
         try
         {
-            frames = decoder.Feed(packet.Data, packet.ReceivedUtc);
+            frames = decoder.Feed(packet.Data, packet.ReceivedUtc, render);
         }
         catch (Exception ex)
         {
@@ -531,7 +534,10 @@ public sealed class ConnectionManager : IDisposable
             VideoStats.OnFrameDecoded(frame);
             ReportDimensions(frame.Width, frame.Height, "decoded");
             if (CheckFrameBrightness(frame))
+            {
+                frame.Dispose();
                 continue; // fell back to software mid-batch; drop black frames
+            }
             SystemStats.SetGpuStatus(frame.HardwareDecoded ? "D3D11VA active" : "Software decode");
             try { FrameReady?.Invoke(this, frame); } catch { }
         }
@@ -588,7 +594,8 @@ public sealed class ConnectionManager : IDisposable
         if (_disposed)
             return;
         _disposed = true;
-        try { StopAsync().GetAwaiter().GetResult(); } catch { }
+        // On the pool: StopAsync's inner awaits capture the caller's context, and a UI thread blocked here would deadlock.
+        try { Task.Run(StopAsync).GetAwaiter().GetResult(); } catch { }
         SystemStats.Dispose();
     }
 }

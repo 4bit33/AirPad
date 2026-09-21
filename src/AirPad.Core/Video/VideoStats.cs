@@ -1,14 +1,26 @@
+using System.Buffers;
+
 namespace AirPad.Core.Video;
 
 /// <summary>
-/// A decoded video frame ready for rendering (BGR24 pixels).
+/// A decoded video frame ready for rendering (BGRA pixels = WPF <c>Bgr32</c>, 4 bytes per pixel).
+/// Pixel buffers come from <see cref="ArrayPool{T}"/>: at 60 fps a fresh multi-MB array per frame means
+/// a gen-2 GC every few frames. Whoever ends up with a frame should <see cref="Dispose"/> it;
+/// forgetting is harmless (the GC just collects the buffer).
 /// </summary>
-public sealed class VideoFrame
+public sealed class VideoFrame : IDisposable
 {
+    private int _disposed;
+
     public int Width { get; init; }
     public int Height { get; init; }
     public int Stride { get; init; }
+
+    /// <summary>Pixel rows of <see cref="Stride"/> bytes; when <see cref="Pooled"/> the array may be longer than Stride × Height.</summary>
     public byte[] Pixels { get; init; } = Array.Empty<byte>();
+
+    /// <summary>True when <see cref="Pixels"/> was rented from the shared array pool.</summary>
+    public bool Pooled { get; init; }
 
     /// <summary>UTC time when the network packet arrived (for latency estimation).</summary>
     public DateTime NetworkReceivedUtc { get; init; } = DateTime.UtcNow;
@@ -18,6 +30,12 @@ public sealed class VideoFrame
 
     /// <summary>True when decoded by the GPU (D3D11VA) path.</summary>
     public bool HardwareDecoded { get; init; }
+
+    public void Dispose()
+    {
+        if (Pooled && Interlocked.Exchange(ref _disposed, 1) == 0)
+            ArrayPool<byte>.Shared.Return(Pixels);
+    }
 }
 
 /// <summary>
