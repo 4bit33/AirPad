@@ -222,9 +222,9 @@ public sealed class AudioUdpServer : IDisposable
             _log.Info("First audio RTP packets arriving");
         MaybeLogSummary();
 
-        // Retransmit-request housekeeping: ignore keep-alive frames.
-        if (length == 16 && datagram[12] == 0x00 && datagram[13] == 0x68 && datagram[14] == 0x34 && datagram[15] == 0x00)
-            return;
+        // The 4-byte payload 00 68 34 00 is the silence frame the iPad sends while nothing plays. It carries no
+        // audio but it owns a sequence number: dropping it left a hole the window could never cross.
+        bool silence = length == 16 && datagram[12] == 0x00 && datagram[13] == 0x68 && datagram[14] == 0x34 && datagram[15] == 0x00;
 
         uint timestamp = (uint)((datagram[4] << 24) | (datagram[5] << 16) | (datagram[6] << 8) | datagram[7]);
 
@@ -238,13 +238,22 @@ public sealed class AudioUdpServer : IDisposable
             }
 
             int distance = SeqDistance(_expected, seq);
-            if (distance < 0 || distance >= ReorderWindow)
-                return; // too old or too far ahead
+            if (distance >= ReorderWindow)
+            {
+                // Far ahead of everything buffered (outage, sender restart): resync here. Rejecting would repeat for
+                // every later packet and leave the stream dead until the next FLUSH/SETUP.
+                _window.Clear();
+                _expected = seq;
+                distance = 0;
+            }
+            else if (distance < 0)
+                return; // late duplicate of a frame that was already played
 
             if (!_window.ContainsKey(seq))
             {
-                _window[seq] = new PendingAudio(seq, timestamp, datagram);
-                Interlocked.Increment(ref _stored);
+                _window[seq] = new PendingAudio(seq, timestamp, silence ? null : datagram);
+                if (!silence)
+                    Interlocked.Increment(ref _stored);
             }
 
             while (_window.Count > ReorderWindow)
@@ -305,6 +314,10 @@ public sealed class AudioUdpServer : IDisposable
     /// </summary>
     private List<AirPad.Core.Audio.PcmPacket> DecodeBuffered(PendingAudio audio)
     {
+        var datagram = audio.Datagram;
+        if (datagram == null)
+            return []; // silence frame: only holds its place in the sequence
+
         AudioDecoder? decoder;
         IBufferedCipher? cipher = null;
         lock (_sessionGate)
@@ -318,7 +331,6 @@ public sealed class AudioUdpServer : IDisposable
 
         try
         {
-            var datagram = audio.Datagram;
             int payloadSize = datagram.Length - 12;
             int blocks = payloadSize / 16 * 16;
             cipher.Reset(); // every RTP packet restarts CBC at the session IV
@@ -411,7 +423,7 @@ public sealed class AudioUdpServer : IDisposable
         try { _cts?.Dispose(); } catch { }
     }
 
-    private sealed record PendingAudio(ushort Seq, uint Timestamp, byte[] Datagram);
+    private sealed record PendingAudio(ushort Seq, uint Timestamp, byte[]? Datagram);
 
     private sealed class SeqComparer : IComparer<ushort>
     {

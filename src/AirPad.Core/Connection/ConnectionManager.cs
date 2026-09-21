@@ -81,6 +81,7 @@ public sealed class ConnectionManager : IDisposable
     private ReceiverState _state = ReceiverState.Ready;
     private long _secondWindowStart = DateTime.UtcNow.Ticks;
     private int _secondWindowCount;
+    private long _lastStreamLogMs;
 
     public AirPadSettings Settings { get; private set; }
     public AirPadLogger Log => _log;
@@ -403,7 +404,8 @@ public sealed class ConnectionManager : IDisposable
             _audioServer?.Flush(-1);
             try { _audioPlayer?.Clear(); } catch { }
         }
-        if (IsRunning)
+        // An audio-only teardown (the iPad does it whenever sound stops) leaves the mirror stream, and Streaming, alone.
+        if (IsRunning && kind != "audio")
             State = kind == "all" ? ReceiverState.WaitingForDevice : ReceiverState.Connected;
         await Task.CompletedTask;
     }
@@ -541,7 +543,12 @@ public sealed class ConnectionManager : IDisposable
             SystemStats.SetGpuStatus(frame.HardwareDecoded ? "D3D11VA active" : "Software decode");
             try { FrameReady?.Invoke(this, frame); } catch { }
         }
-        _log.Debug($"Streaming {VideoStats.Fps:0} FPS {VideoStats.Width}x{VideoStats.Height} (~{VideoStats.LatencyMs:0} ms)");
+        // Once a second: a line per frame floods the file, the UI log and the dispatcher at Debug level.
+        if (Environment.TickCount64 - _lastStreamLogMs >= 1000)
+        {
+            _lastStreamLogMs = Environment.TickCount64;
+            _log.Debug($"Streaming {VideoStats.Fps:0} FPS {VideoStats.Width}x{VideoStats.Height} (~{VideoStats.LatencyMs:0} ms)");
+        }
     }
 
     private async Task EnsureAudioAsync(Session session)

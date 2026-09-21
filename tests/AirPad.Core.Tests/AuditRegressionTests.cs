@@ -241,6 +241,101 @@ public sealed class AudioUdpRegressionTests
         }
     }
 
+    [Fact]
+    public async Task Audio_ResumesAfterALongRunOfSilenceFrames()
+    {
+        int controlPort = FreeUdpPort(), dataPort = FreeUdpPort();
+        var session = new Session("audio-silence")
+        {
+            DecryptedAesKey = Enumerable.Range(1, 16).Select(i => (byte)i).ToArray(),
+            EcdhShared = Enumerable.Range(50, 32).Select(i => (byte)i).ToArray(),
+            AesIv = Enumerable.Range(200, 16).Select(i => (byte)i).ToArray(),
+        };
+        var decoder = new RecordingDecoder();
+        var server = new AudioUdpServer(Log, controlPort, dataPort);
+        await server.StartAsync();
+        try
+        {
+            server.AttachSession(session, decoder);
+            using var udp = new UdpClient();
+            var target = new IPEndPoint(IPAddress.Loopback, dataPort);
+
+            async Task Send(ushort seq, byte[] packet)
+            {
+                await udp.SendAsync(packet, packet.Length, target);
+                if (seq % 25 == 0)
+                    await Task.Delay(2); // let the receiver keep up; loopback preserves order
+            }
+
+            // 50 audio frames, then 300 silence frames (12-byte RTP header + the 4-byte plaintext silence payload
+            // 00 68 34 00 the iPad sends while nothing is playing; ~3 s), then audio again.
+            for (ushort seq = 0; seq < 50; seq++) await Send(seq, Rtp(seq, session));
+            for (ushort seq = 50; seq < 350; seq++) await Send(seq, Silence(seq));
+            for (ushort seq = 350; seq < 400; seq++) await Send(seq, Rtp(seq, session));
+
+            var deadline = DateTime.UtcNow.AddSeconds(3);
+            while (DateTime.UtcNow < deadline && decoder.Count < 100)
+                await Task.Delay(20);
+
+            Assert.True(decoder.Count == 100, $"only {decoder.Count}/100 audio frames decoded: the stream died after the silence");
+        }
+        finally
+        {
+            await server.StopAsync();
+        }
+    }
+
+    [Fact]
+    public async Task Audio_ResyncsAfterALongOutage()
+    {
+        int controlPort = FreeUdpPort(), dataPort = FreeUdpPort();
+        var session = new Session("audio-outage")
+        {
+            DecryptedAesKey = Enumerable.Range(1, 16).Select(i => (byte)i).ToArray(),
+            EcdhShared = Enumerable.Range(50, 32).Select(i => (byte)i).ToArray(),
+            AesIv = Enumerable.Range(200, 16).Select(i => (byte)i).ToArray(),
+        };
+        var decoder = new RecordingDecoder();
+        var server = new AudioUdpServer(Log, controlPort, dataPort);
+        await server.StartAsync();
+        try
+        {
+            server.AttachSession(session, decoder);
+            using var udp = new UdpClient();
+            var target = new IPEndPoint(IPAddress.Loopback, dataPort);
+
+            // Sequence numbers jump by 1000 (Wi-Fi outage of ~11 s): nothing in between was ever received.
+            foreach (ushort seq in Enumerable.Range(0, 50).Concat(Enumerable.Range(1050, 50)).Select(i => (ushort)i))
+            {
+                var packet = Rtp(seq, session);
+                await udp.SendAsync(packet, packet.Length, target);
+                await Task.Delay(1);
+            }
+
+            var deadline = DateTime.UtcNow.AddSeconds(3);
+            while (DateTime.UtcNow < deadline && decoder.Count < 100)
+                await Task.Delay(20);
+
+            Assert.True(decoder.Count == 100, $"only {decoder.Count}/100 audio frames decoded: the stream never resynced");
+        }
+        finally
+        {
+            await server.StopAsync();
+        }
+    }
+
+    private static byte[] Silence(ushort seq)
+    {
+        var packet = new byte[16];
+        packet[0] = 0x80;
+        packet[1] = 0x60;
+        BinaryPrimitives.WriteUInt16BigEndian(packet.AsSpan(2), seq);
+        BinaryPrimitives.WriteUInt32BigEndian(packet.AsSpan(4), seq * 480u);
+        packet[13] = 0x68;
+        packet[14] = 0x34;
+        return packet;
+    }
+
     // RTP header + AES-CBC payload whose first plaintext byte is the sequence number.
     private static byte[] Rtp(ushort seq, Session s)
     {
