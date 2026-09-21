@@ -15,7 +15,8 @@ dotnet build AirPad.slnx -c Release
 dotnet test tests\AirPad.Core.Tests\AirPad.Core.Tests.csproj
 ```
 
-Очікувано: `Build succeeded`, `Passed! - Failed: 0, Passed: 32`.
+Очікувано: `Build succeeded`, `Failed: 0`. Тести, яким потрібні FFmpeg DLL, без них пропускаються;
+щоб їх запустити, задай `AIRPAD_FFMPEG_DIR` (папка з `avcodec-*.dll`).
 
 ## FFmpeg (обов'язково для відео/аудіо)
 
@@ -28,7 +29,7 @@ DLL поруч з `AirPad.exe`. Вручну: [BtbN releases](https://github.com
 (файл `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip (��� latest)`, папка `bin`). Інтернет потрібен **лише тут** —
 сама трансляція йде лише локальною мережею.
 
-Перевірка: у лозі після старту має бути `FFmpeg loaded: n7.1 …`,
+Перевірка: у лозі після старту має бути `FFmpeg loaded: n8.1 …`,
 а після підключення — `H.264 decoder: D3D11VA hardware acceleration enabled`
 (або `software decoding` на старих GPU).
 

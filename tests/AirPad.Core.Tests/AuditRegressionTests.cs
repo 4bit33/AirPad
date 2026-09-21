@@ -513,6 +513,106 @@ public sealed class ShutdownRegressionTests
     }
 }
 
+/// <summary>A registration keeps advertising the addresses it was built with: it has to follow the machine's changes.</summary>
+public sealed class MdnsRegressionTests
+{
+    // TEST-NET-1 (RFC 5737) is never routable, so these tests cannot advertise a usable address on the LAN.
+    private static IPAddress[] Addr(params int[] last) => last.Select(n => IPAddress.Parse($"192.0.2.{n}")).ToArray();
+
+    private static (Discovery.MdnsAdvertiser Mdns, Func<int> Registrations, Config.AirPadSettings Settings) Create(string name)
+    {
+        var log = new AirPadLogger(minimumLevel: LogLevel.Info);
+        int registrations = 0;
+        log.EntryAdded += (_, e) => { if (e.Message == "mDNS service registered") Interlocked.Increment(ref registrations); };
+        var settings = new Config.AirPadSettings { ReceiverName = name, DeviceId = "11:22:33:44:55:66", AirPlayPort = 17930, AirTunesPort = 15930 };
+        return (new Discovery.MdnsAdvertiser(log), () => Volatile.Read(ref registrations), settings);
+    }
+
+    private static async Task WaitFor(Func<bool> condition)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!condition() && DateTime.UtcNow < deadline)
+            await Task.Delay(20);
+        Assert.True(condition(), "timed out");
+    }
+
+    [Fact]
+    public async Task Refresh_ReregistersOnlyWhenTheAddressSetChanges()
+    {
+        var (mdns, registrations, settings) = Create("AirPad-Test-Mdns1");
+        var addresses = Addr(10);
+        mdns.Addresses = () => addresses;
+        await mdns.StartAsync(settings, new byte[32]);
+        try
+        {
+            Assert.Equal(1, registrations());
+            Assert.False(mdns.Refresh()); // nothing changed
+
+            addresses = Addr(10, 11); // e.g. the hotspot adapter came up
+            Assert.True(mdns.Refresh());
+            Assert.Equal(2, registrations());
+            Assert.False(mdns.Refresh()); // the new set is registered now
+        }
+        finally
+        {
+            mdns.Dispose();
+        }
+        addresses = Addr(12);
+        Assert.False(mdns.Refresh()); // never registers again after Stop
+    }
+
+    [Fact]
+    public async Task Refresh_WaitsWhileADeviceIsConnected()
+    {
+        var (mdns, registrations, settings) = Create("AirPad-Test-Mdns2");
+        var addresses = Addr(10);
+        bool deviceConnected = true;
+        mdns.Addresses = () => addresses;
+        mdns.CanRefresh = () => !Volatile.Read(ref deviceConnected);
+        mdns.RetryDelay = TimeSpan.FromMilliseconds(50);
+        await mdns.StartAsync(settings, new byte[32]);
+        try
+        {
+            addresses = Addr(10, 11);
+            Assert.False(mdns.Refresh()); // deferred, not dropped: goodbyes must not hit a connected device
+            Assert.Equal(1, registrations());
+
+            Volatile.Write(ref deviceConnected, false);
+            await WaitFor(() => registrations() == 2); // the retry timer picks it up
+        }
+        finally
+        {
+            mdns.Dispose();
+        }
+    }
+
+    [Fact]
+    public async Task AddressChangeEvents_AreDebouncedIntoOneRegistration()
+    {
+        var (mdns, registrations, settings) = Create("AirPad-Test-Mdns3");
+        var addresses = Addr(10);
+        mdns.Addresses = () => addresses;
+        mdns.Debounce = TimeSpan.FromMilliseconds(150);
+        await mdns.StartAsync(settings, new byte[32]);
+        try
+        {
+            addresses = Addr(10, 11);
+            for (int i = 0; i < 5; i++) // a burst, like Windows raises while DHCP settles
+            {
+                mdns.OnNetworkAddressChanged(null, EventArgs.Empty);
+                await Task.Delay(30);
+            }
+            await WaitFor(() => registrations() == 2);
+            await Task.Delay(400);
+            Assert.Equal(2, registrations()); // and no second registration follows
+        }
+        finally
+        {
+            mdns.Dispose();
+        }
+    }
+}
+
 public sealed class SessionRegressionTests
 {
     [Fact]

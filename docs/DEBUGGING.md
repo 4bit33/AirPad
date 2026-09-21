@@ -26,6 +26,9 @@
    Перевірка: `netsh advfirewall firewall show rule name="AirPad Wireless Display Receiver"`.
 3. **mDNS.** UDP 5353 мають пропускати і роутер (IGMP/multicast), і антивірус.
    Гостьові Wi-Fi з client-isolation блокують AirPlay в принципі — перевір на домашній мережі.
+   Якщо адреси ПК змінились уже після старту (хотспот, VPN, Wi-Fi), приймач сам перереєструється
+   в mDNS приблизно через 3 с, але лише коли жоден пристрій не підключений
+   (у лозі: `Network addresses changed; re-registering the receiver on mDNS`).
 4. **Порти зайняті?** `netstat -ano | findstr "7000 5000"` — інший AirPlay-сервер
    (AirServer, Reflector, iTunes) тримає порт → закрий його або зміни порти в Settings.
 5. Перезапусти Wi-Fi на iPad (відомий глюк кешу Bonjour) і приймач.
@@ -89,6 +92,7 @@ DRM-захищений контент (Apple TV+, Netflix) iPad взагалі �
 dotnet test tests\AirPad.Core.Tests\AirPad.Core.Tests.csproj
 ```
 
-34 тести покривають plist-roundtrip, H264-шлюз, pairing/FairPlay-вектори,
-парсинг RTSP, **живий TCP control-сервер на loopback** (OPTIONS + пайплайнінг)
-і **повний цикл приймача** (старт mDNS+TCP, RTSP-запит через реальний стек, стоп).
+Тести покривають plist-roundtrip, H264-шлюз, pairing/FairPlay-вектори,
+парсинг RTSP, **живий TCP control-сервер на loopback** (OPTIONS + пайплайнінг + запити, розбиті на частини),
+**повний цикл приймача** (старт mDNS+TCP, RTSP-запит через реальний стек, стоп) та регресії
+аудіо (порядок, ретрансміти, тиша, розрив послідовності), реконекту і перереєстрації mDNS.

@@ -269,7 +269,7 @@ public sealed class ConnectionManager : IDisposable
             mirrorDisconnected: _ => OnMirrorDisconnected());
         await _dualServer.StartAsync().ConfigureAwait(false);
 
-        _mdns = new MdnsAdvertiser(_log);
+        _mdns = new MdnsAdvertiser(_log) { CanRefresh = () => State == ReceiverState.WaitingForDevice };
         await _mdns.StartAsync(Settings, _pairing.ServerPublicKey).ConfigureAwait(false);
 
         State = ReceiverState.WaitingForDevice;

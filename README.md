@@ -30,7 +30,7 @@ AirPlay 2)**, який iPadOS підтримує досі (підтвердже�
 - ✅ mDNS без Bonjour, визначення IP, попередження про різні підмережі, firewall-скрипт
 - ✅ UI: статуси Ready/Waiting/Connected/Streaming, FPS, роздільність, latency, CPU/GPU,
   fullscreen (F11), приховування UI (Ctrl+H), логи, налаштування
-- ✅ 66 unit/integration тести (`dotnet test`), включно з живим TCP-сервером на loopback і повним циклом старт/стоп приймача
+- ✅ unit/integration тести (`dotnet test`): живий TCP-сервер на loopback, повний цикл старт/стоп приймача, регресії аудіо/реконекту/mDNS
 - ⚠️ E2E з реальним iPad потребує фізичного тестування (див. [`docs/DEBUGGING.md`](docs/DEBUGGING.md))
 
 ## Швидкий старт
@@ -63,7 +63,7 @@ src/AirPad.Core/            # уся логіка приймача, без за�
   Connection/               # ConnectionManager: автомат Ready→Waiting→Connected→Streaming
   Config/ Logging/ Stats/   # налаштування, логи [INFO], CPU/GPU-монітор
 src/AirPad/                 # WPF UI (MVVM): головне вікно, налаштування, рендер
-tests/AirPad.Core.Tests/    # 69 тести
+tests/AirPad.Core.Tests/    # unit + integration тести
 scripts/                    # firewall, завантаження FFmpeg, ffplay-fallback
 docs/                       # PROTOCOL / BUILD / DEBUGGING / ARCHITECTURE
 ```
@@ -86,7 +86,7 @@ docs/                       # PROTOCOL / BUILD / DEBUGGING / ARCHITECTURE
 | Makaretu.Dns.Multicast | 0.27.0 | MIT | mDNS/DNS-SD без Bonjour |
 | BouncyCastle.Cryptography | 2.4.0 | MIT | X25519, Ed25519, AES-CTR/CBC |
 | NAudio | 2.2.1 | MIT | WASAPI-аудіовихід |
-| FFmpeg.AutoGen | 8.1.0 | LGPL | прив'язки до нативного FFmpeg 7.1 |
+| FFmpeg.AutoGen | 8.1.0 | LGPL | прив'язки до нативного FFmpeg 8.1 |
 | FFmpeg shared build (BtbN) | 8.1 | GPL/LGPL | нативні DLL для декодування |
 | xunit | 2.9.3 | Apache-2.0 | тести |
 
