@@ -100,6 +100,12 @@ try {
         }
     }
 
+    # FFmpeg is LGPL: its license must travel with the DLLs.
+    $ffLicense = Join-Path $bin.Parent.FullName "LICENSE.txt"
+    if (Test-Path -LiteralPath $ffLicense) {
+        Copy-Item -LiteralPath $ffLicense -Destination (Join-Path $Destination "FFmpeg-LICENSE.txt") -Force
+    }
+
     $avcodec = $copied | Where-Object { $_ -like "avcodec-*.dll" } | Select-Object -First 1
     Write-Host "FFmpeg DLLs installed to $Destination ($avcodec)" -ForegroundColor Green
     Write-Host "Start AirPad and look for 'FFmpeg loaded' in the log panel." -ForegroundColor Green

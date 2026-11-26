@@ -18,9 +18,11 @@ AirPlay Mirroring** (той самий, що й AirPlay 1 mirror + розшир�
     `flags`, `model=AppleTV5,3`, `pk`, `pi`, `srcvers=220.68`, `vv=2`);
   - `_raop._tcp.local` (RAOP = Remote Audio Output Protocol) — аудіо+mirror
     control (TXT: `ch=2`, `cn=2,3`, `et=0,3,5`, `md=0,1,2`, `sr=44100`,
-    `ss=16`, `ft=0x5A7FFFF7,0x1E`, `am=AppleTV5,3`, `sf=0x4`, `tp=UDP` …).
-- `features=0x5A7FFFF7,0x1E` заявляє Video/Photo/Mirroring/Audio/Volume/HLS —
-  саме цей набір показує ПК у «Повторенні екрана».
+    `ss=16`, `ft=0x5A7FFFE6,0x18`, `am=AppleTV5,3`, `sf=0x4`, `tp=UDP` …).
+- `features=0x5A7FFFE6,0x18` заявляє Photo/Mirroring/ScreenRotate/Audio…, але **не** Video (біт 0),
+  HTTP Live Streams (4), VideoPlayQueue (33) і FromCloud (34) — див. `Protocol/AirPlayFeatures.cs`.
+  Без плеєра URL їх заявляти не можна: iOS інакше передає YouTube по AirPlay Video
+  (`/server-info` → `/reverse` → `/play`), mirror-сесія рветься і iPad зависає. Так само робить UxPlay без `-hls`.
 - AirPad використовує чистий C# mDNS (Makaretu.Dns, MIT) — **Bonjour/Avahi не потрібні**.
   Реалізація: `src/AirPad.Core/Discovery/MdnsAdvertiser.cs`.
 

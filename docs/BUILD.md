@@ -26,7 +26,7 @@ powershell -ExecutionPolicy Bypass -File scripts\get-ffmpeg.ps1
 
 Скрипт качає shared build 8.1 (BtbN) і кладе `avcodec/avformat/avutil/swscale/swresample`
 DLL поруч з `AirPad.exe`. Вручну: [BtbN releases](https://github.com/BtbN/FFmpeg-Builds/releases)
-(файл `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip (��� latest)`, папка `bin`). Інтернет потрібен **лише тут** —
+(файл `ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip`, папка `bin`). Інтернет потрібен **лише тут** —
 сама трансляція йде лише локальною мережею.
 
 Перевірка: у лозі після старту має бути `FFmpeg loaded: n8.1 …`,
@@ -67,6 +67,16 @@ dotnet publish src\AirPad\AirPad.csproj -c Release -r win-x64 --self-contained t
 
 Після публікації доклади FFmpeg DLL у папку з exe (скрипт `get-ffmpeg.ps1`
 приймає `-Destination publish\sc`).
+
+### Реліз одним кроком
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\publish.ps1
+```
+
+Проганяє тести, публікує self-contained single-file exe, докладає FFmpeg DLL (+ їхню
+LGPL-ліцензію), `README.md`, `LICENSE`, `setup-firewall.ps1` і пакує в
+`publish\AirPad-<версія>-win-x64.zip`. Версія береться з `<Version>` у `src/AirPad/AirPad.csproj`.
 
 ## Залежності NuGet (фіксовані версії)
 

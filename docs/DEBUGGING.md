@@ -72,17 +72,19 @@
 
 ## YouTube / Netflix / відеододатки зупиняють mirroring
 
-Це нормальна поведінка iOS, а не баг: відеододатки перемикаються з повторення
-екрана на пряме відтворення за URL (AirPlay HLS-handoff: `POST /play`, потім
-`TEARDOWN` mirror-сесії — видно в лозі). AirPad HLS-плеєр поки не реалізує,
-тому екран гасне, а в лозі буде:
+AirPad не заявляє AirPlay Video (біти 0/4/33/34 у `features`), тож iOS має дзеркалити
+відео застосунку як звичайний екран. Раніше ці біти були виставлені, і відеододаток
+перемикався з повторення екрана на пряме відтворення за URL (AirPlay HLS-handoff), якого
+AirPad не вміє: у лозі йшло `GET /server-info` → `POST /reverse` → `TEARDOWN`, а iPad зависав.
+
+Якщо це знову видно в лозі, iOS тримає старі capabilities в кеші Bonjour: перезапусти
+приймач і вимкни/увімкни Wi-Fi на iPad. Якщо дійшло до `/play`, у лозі буде:
 
 ```
 [INFO] AirPlay video handoff (/play) requested — direct URL playback (HLS) is
 not implemented, the iPad stops mirroring here. ...
 ```
 
-Обхід: дивіться відео через **Safari** — тоді йде звичайне mirroring екрана.
 DRM-захищений контент (Apple TV+, Netflix) iPad взагалі не віддзеркалює
 стороннім приймачам — покаже чорний прямокутник навіть у Safari.
 

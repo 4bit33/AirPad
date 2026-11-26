@@ -613,6 +613,47 @@ public sealed class MdnsRegressionTests
     }
 }
 
+/// <summary>
+/// The receiver must not claim what it cannot play: with the video bits set, YouTube makes iOS hand playback off to
+/// URL playback (GET /server-info, POST /reverse, POST /play), which AirPad does not implement, and the iPad hangs.
+/// </summary>
+public sealed class FeaturesRegressionTests
+{
+    // Video (0), VideoHTTPLiveStreams (4), SupportsAirPlayVideoPlayQueue (33), SupportsAirPlayFromCloud (34).
+    private const ulong VideoBits = 1UL << 0 | 1UL << 4 | 1UL << 33 | 1UL << 34;
+    private const ulong Screen = 1UL << 7;
+    private const ulong Audio = 1UL << 9;
+
+    [Fact]
+    public async Task InfoResponse_DoesNotOfferAirPlayVideo_ButKeepsMirroringAndAudio()
+    {
+        var log = new AirPadLogger(minimumLevel: LogLevel.Error);
+        var handler = new AirPlayRequestHandler(log, new PairingService(log), new FairPlayService(log),
+            "Test", "11:22:33:44:55:66", 7000, 5000, 7002, 7003);
+        var request = new Request(Convert.ToHexString(Encoding.ASCII.GetBytes("GET /info HTTP/1.1\r\nCSeq: 1\r\n\r\n")));
+        var response = request.GetBaseResponse();
+
+        await handler.HandleAsync(request, response, CancellationToken.None);
+
+        var plist = (Dictionary<object, object>)new BinaryPlistReader().ReadObject(new MemoryStream(await response.ReadAsync()))!;
+        var features = (ulong)AirPlayRequestHandler.PlistLong(plist["features"]);
+        Assert.Equal(0UL, features & VideoBits);
+        Assert.NotEqual(0UL, features & Screen);
+        Assert.NotEqual(0UL, features & Audio);
+    }
+
+    [Fact]
+    public void MdnsFeatures_DoNotOfferAirPlayVideo_ButKeepMirroringAndAudio()
+    {
+        var parts = AirPlayFeatures.MdnsTxt.Split(','); // "0x<low>,0x<high>"
+        var features = Convert.ToUInt64(parts[0][2..], 16) | Convert.ToUInt64(parts[1][2..], 16) << 32;
+
+        Assert.Equal(0UL, features & VideoBits);
+        Assert.NotEqual(0UL, features & Screen);
+        Assert.NotEqual(0UL, features & Audio);
+    }
+}
+
 public sealed class SessionRegressionTests
 {
     [Fact]

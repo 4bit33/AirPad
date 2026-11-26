@@ -219,7 +219,7 @@ public sealed class AirPlayRequestHandler
     {
         var dict = new Dictionary<string, object>
         {
-            ["features"] = 61379444727L,
+            ["features"] = (long)AirPlayFeatures.Info,
             ["name"] = _receiverName,
             ["displays"] = new List<Dictionary<string, object>>
             {

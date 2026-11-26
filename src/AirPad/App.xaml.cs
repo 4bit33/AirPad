@@ -24,7 +24,7 @@ public partial class App : Application
         Logger = new AirPadLogger(minimumLevel: ParseLevel(initial.LogLevel));
         Manager = new ConnectionManager(Logger, SettingsStore);
 
-        Logger.Info("AirPad starting");
+        Logger.Info($"AirPad {typeof(App).Assembly.GetName().Version?.ToString(3)} starting");
         DispatcherUnhandledException += (_, args) =>
         {
             Logger.Error("Unhandled UI exception: " + args.Exception, args.Exception);

@@ -3,6 +3,7 @@ using System.Net.NetworkInformation;
 using System.Text.RegularExpressions;
 using AirPad.Core.Config;
 using AirPad.Core.Logging;
+using AirPad.Core.Protocol;
 using Makaretu.Dns;
 
 namespace AirPad.Core.Discovery;
@@ -100,7 +101,7 @@ public sealed class MdnsAdvertiser : IDisposable
         airTunes.AddProperty("ss", "16");
         airTunes.AddProperty("da", "true");
         airTunes.AddProperty("sv", "false");
-        airTunes.AddProperty("ft", "0x5A7FFFF7,0x1E");
+        airTunes.AddProperty("ft", AirPlayFeatures.MdnsTxt);
         airTunes.AddProperty("am", "AppleTV5,3");
         airTunes.AddProperty("pk", r.PublicKeyHex);
         airTunes.AddProperty("sf", "0x4");
@@ -111,7 +112,7 @@ public sealed class MdnsAdvertiser : IDisposable
 
         var airPlay = new ServiceProfile(r.Instance, AirPlayService, r.AirPlayPort, addresses);
         airPlay.AddProperty("deviceid", r.DeviceId);
-        airPlay.AddProperty("features", "0x5A7FFFF7,0x1E");
+        airPlay.AddProperty("features", AirPlayFeatures.MdnsTxt);
         airPlay.AddProperty("flags", "0x4");
         airPlay.AddProperty("model", "AppleTV5,3");
         airPlay.AddProperty("pk", r.PublicKeyHex);
