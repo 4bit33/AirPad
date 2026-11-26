@@ -4,8 +4,9 @@ namespace AirPad.Core.Auth;
 
 /// <summary>
 /// Handles the /fp-setup (FairPlay) exchange and derives the per-stream
-/// AES-CTR video key via the open-source OmgHax routine
-/// (MIT, originally from SteeBono/airplayreceiver).
+/// AES-CTR video key via the OmgHax routine in Auth/FairPlay. That code is the C# port by
+/// SteeBono/airplayreceiver of playfair (github.com/EstebanKubata/playfair, GPL-3.0), which is
+/// why AirPad as a whole is GPL-3.0.
 /// </summary>
 public sealed class FairPlayService
 {

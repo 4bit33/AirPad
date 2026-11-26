@@ -71,6 +71,11 @@
                 <Button Content="Cancel" Width="90" Click="OnCancel"/>
                 <Button Content="Save" Width="90" Style="{StaticResource PrimaryButton}" Click="OnSave"/>
             </StackPanel>
+
+            <TextBlock Foreground="{StaticResource DimBrush}" FontSize="11" Margin="0,16,0,0" TextWrapping="Wrap">
+                AirPad © 2026 4bit33 · Free software under the GNU GPL v3 ·
+                <Hyperlink NavigateUri="https://github.com/4bit33/AirPad" RequestNavigate="OnLink">github.com/4bit33/AirPad</Hyperlink>
+            </TextBlock>
         </StackPanel>
     </ScrollViewer>
 </Window>

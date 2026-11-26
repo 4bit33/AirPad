@@ -34,6 +34,12 @@ public partial class SettingsWindow : Window
         DialogResult = false;
         Close();
     }
+
+    private void OnLink(object sender, System.Windows.Navigation.RequestNavigateEventArgs e)
+    {
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(e.Uri.AbsoluteUri) { UseShellExecute = true });
+        e.Handled = true;
+    }
 }
 
 internal sealed class SettingsEditor : INotifyPropertyChanged

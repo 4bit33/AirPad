@@ -105,12 +105,21 @@ docs/                       # PROTOCOL / BUILD / DEBUGGING / ARCHITECTURE
 - Стандартний handshake AirPlay (pair-verify + FairPlay); DRM-контент не розшифровується.
 - Firewall відкриває тільки потрібні порти (TCP 5000/7000, UDP 5353/7002/7003).
 
-## Подяки та ліцензія
+## Подяки
 
-Протокол реалізовано на основі MIT-проєкту
-[SteeBono/airplayreceiver](https://github.com/SteeBono/airplayreceiver)
-(plist-кодек, моделі RTSP, FairPlay-процедура OmgHax) та документації/референсів
-[UxPlay](https://github.com/FDH2/UxPlay),
-[openairplay](https://openairplay.github.io/airplay-spec/),
-[Emanuele Cozzi AirPlay 2 Internals](https://emanuelecozzi.net/docs/airplay2/).
-Вихідний код UxPlay (GPL) **не** копіювався. Ліцензія проєкту: MIT (див. LICENSE).
+- [playfair](https://github.com/EstebanKubata/playfair) (EstebanKubata, GPL-3.0): FairPlay-процедура
+  OmgHax, з якої розшифровується ключ відеопотоку (`src/AirPad.Core/Auth/FairPlay`).
+- [SteeBono/airplayreceiver](https://github.com/SteeBono/airplayreceiver) (MIT): C#-порт playfair,
+  plist-кодек, моделі RTSP.
+- Binary plist: Chad Burggraf (Tasty Codes), на основі BinaryPListParser Werner Randelshofer.
+- Документація й референси: [UxPlay](https://github.com/FDH2/UxPlay),
+  [openairplay](https://openairplay.github.io/airplay-spec/),
+  [Emanuele Cozzi AirPlay 2 Internals](https://emanuelecozzi.net/docs/airplay2/).
+
+## Ліцензія
+
+Copyright (C) 2026 4bit33
+
+AirPad поширюється під [GNU GPL v3](LICENSE). Похідні версії мають бути відкритими під тією ж
+ліцензією, зберігати цей копірайт і позначати внесені зміни. GPL-3.0 тут обов'язкова, бо код
+FairPlay походить з playfair (GPL-3.0).

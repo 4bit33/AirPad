@@ -3,7 +3,7 @@
 Цей документ відповідає на 8 обов'язкових питань ТЗ. Висновки звірено з
 актуальними (2025–2026) джерелами: UxPlay 1.73/1.74, openairplay-spec,
 Emanuele Cozzi «AirPlay 2 Internals», air-display «AirPlay Internal And
-Implementation», SteeBono/airplayreceiver (MIT), moieric11/AirPlay-Windows.
+Implementation», SteeBono/airplayreceiver, moieric11/AirPlay-Windows.
 
 Головний висновок: **сучасний iPadOS (17/18) досі підтримує legacy-протокол
 AirPlay Mirroring** (той самий, що й AirPlay 1 mirror + розширення AirPlay 2
@@ -54,7 +54,7 @@ AirPlay Mirroring** (той самий, що й AirPlay 1 mirror + розшир�
 4. `POST /fp-setup` фаза 1 (16 байт, mode 0–3) → 142-байтна відповідь;
    фаза 2 (164 байти) → сервер зберігає key message і повертає 32 байти
    (`FPLY`-заголовок + хвіст). Сесійний AES-ключ (`ekey`) розшифровується
-   процедурою OmgHax (відкритий реверс-інжиніринг, MIT).
+   процедурою OmgHax (відкритий реверс-інжиніринг playfair, GPL-3.0).
 5. Криптографія — BouncyCastle (X25519/ECDH, Ed25519, AES-CTR/CBC). Жодних
    ключів Apple не вбудовано; DRM-відео не розшифровується.
 
