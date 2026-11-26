@@ -1,4 +1,6 @@
-﻿//-----------------------------------------------------------------------
+﻿// Ported from code written before nullable reference types; not annotated.
+#nullable disable
+//-----------------------------------------------------------------------
 // <copyright file="BinaryPlistWriter.cs" company="Tasty Codes">
 //     Copyright (c) 2011 Chad Burggraf.
 // </copyright>
@@ -322,7 +324,7 @@ namespace System.Runtime.Serialization.Plists
         /// <returns>The index of the added value.</returns>
         private int AddData(object value)
         {
-            int index = this.objectTable.Count, count = 0, bufferIndex = 0;
+            int index = this.objectTable.Count;
             byte[] buffer = value as byte[];
 
             if (buffer == null)
@@ -595,7 +597,9 @@ namespace System.Runtime.Serialization.Plists
                     }
                     else if (typeof(byte[]).IsAssignableFrom(type) 
                         || typeof(ISerializable).IsAssignableFrom(type) 
+#pragma warning disable SYSLIB0050 // only a type check here, nothing is serialized with a formatter
                         || type.IsSerializable)
+#pragma warning restore SYSLIB0050
                     {
                         index = this.AddData(value);
                     }

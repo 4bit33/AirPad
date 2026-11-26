@@ -1,4 +1,6 @@
-﻿//-----------------------------------------------------------------------
+﻿// Ported from code written before nullable reference types; not annotated.
+#nullable disable
+//-----------------------------------------------------------------------
 // <copyright file="DataContractBinaryPlistSerializer.cs" company="Tasty Codes">
 //     Copyright (c) 2011 Chad Burggraf.
 // </copyright>

@@ -57,7 +57,6 @@ public sealed class AudioUdpServer : IDisposable
     private long _decodedEmpty;
     private long _played;
     private long _stored;
-    private long _firstRtpLogged;
     private long _firstDecodedLogged;
     private DateTime _lastSummaryUtc = DateTime.UtcNow;
     private DateTime _lastResendUtc = DateTime.MinValue;

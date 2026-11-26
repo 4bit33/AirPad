@@ -1,3 +1,5 @@
+// Ported from code written before nullable reference types; not annotated.
+#nullable disable
 using System;
 
 namespace AirPad.Core.Models

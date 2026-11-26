@@ -206,19 +206,8 @@ public class TcpControlServer : IDisposable
             }
 
             await SendResponseAsync(stream, response, ct).ConfigureAwait(false);
-
-            if (Volatile.Read(ref _stopConnection))
-            {
-                Volatile.Write(ref _stopConnection, false);
-                return;
-            }
         }
     }
-
-    private volatile bool _stopConnection;
-
-    /// <summary>Call from a request handler to close the connection after responding (e.g. TEARDOWN).</summary>
-    public void CloseConnectionAfterResponse() => Volatile.Write(ref _stopConnection, true);
 
     private static bool TryExtractRequest(List<byte> pending, out byte[] request)
     {

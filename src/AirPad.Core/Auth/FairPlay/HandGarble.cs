@@ -115,7 +115,10 @@ namespace AirPad.Core
 
             tmp3 = (A | B);
 
+            // Verbatim from playfair: the sign extension only touches bits above the byte that survives the cast.
+#pragma warning disable CS0675
             C = (byte)(((((A | B) ^ 0xffffffa6) | (buffer3[0] & 0xff)) & 4) | (((A | B) ^ 0xffffffa6) & (buffer3[0] & 0xff)));
+#pragma warning restore CS0675
             buffer1[47] = (byte)(((buffer2[(buffer1[89] & 0xff) % 35] & 0xff) + C) ^ (buffer1[47] & 0xff));
 
             buffer3[36] = (byte)(((Rol8((byte)((tmp & 179) + 68), 2) & (buffer0[3] & 0xff)) | (tmp2 & ~(buffer0[3] & 0xff))) - 15);

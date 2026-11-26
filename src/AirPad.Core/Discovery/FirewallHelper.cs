@@ -8,6 +8,7 @@ namespace AirPad.Core.Discovery;
 /// TCP inbound on the AirPlay/AirTunes ports and UDP on mDNS (5353)
 /// plus the RAOP audio ports. Requires elevation to apply.
 /// </summary>
+[System.Runtime.Versioning.SupportedOSPlatform("windows")]
 public static class FirewallHelper
 {
     public const string RuleName = "AirPad Wireless Display Receiver";

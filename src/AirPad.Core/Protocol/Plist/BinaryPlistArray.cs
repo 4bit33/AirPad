@@ -1,4 +1,6 @@
-﻿//-----------------------------------------------------------------------
+﻿// Ported from code written before nullable reference types; not annotated.
+#nullable disable
+//-----------------------------------------------------------------------
 // <copyright file="BinaryPlistArray.cs" company="Tasty Codes">
 //     Copyright (c) 2011 Chad Burggraf.
 //     Inspired by BinaryPListParser.java, copyright (c) 2005 Werner Randelshofer
