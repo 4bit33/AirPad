@@ -1,125 +1,128 @@
-# AirPad — бездротовий екран для iPad на Windows 10/11
+# AirPad
 
-> **English summary:** AirPad turns a Windows 10/11 PC into an AirPlay screen-mirroring
-> receiver for iPad/iPhone. Open the app, press **Start Receiver**, then pick the PC in
-> iPad **Control Center → Screen Mirroring**. Video is hardware-decoded (D3D11VA) with a
-> low-latency pipeline; mirror audio plays through the default output device.
+**Бездротовий екран для iPad і iPhone на Windows 10/11.** Відкрий AirPad на ПК, на iPad вибери
+**Повторення екрана** — і екран iPad з'являється у вікні на комп'ютері, разом зі звуком.
+Без Apple TV, без iTunes і Bonjour, без хмари: усе йде локальною мережею.
 
-`iPad → AirPlay → Windows-приймач → декодоване відео → вікно.` Ніяких власних
-протоколів: використовується стандартний **AirPlay Mirroring (legacy-протокол
-AirPlay 2)**, який iPadOS підтримує досі (підтверджено проєктом UxPlay 1.73/1.74
-для iOS 17/18). Див. деталі в [`docs/PROTOCOL.md`](docs/PROTOCOL.md).
+> **English:** AirPad turns a Windows 10/11 PC into an AirPlay screen-mirroring receiver for
+> iPad and iPhone. Download the zip from [Releases](https://github.com/4bit33/AirPad/releases), run
+> `AirPad.exe`, press **Start Receiver**, then pick the PC in **Control Center → Screen Mirroring**.
+> Video and sound stay on your local network. Free software under the GNU GPL v3.
 
-## Як це працює (коротко)
+![Головне вікно AirPad](docs/screenshot.png)
 
-1. Натисни **▶ Start Receiver** — програма піднімає TCP-сервери (5000/7000),
-   UDP-аудіо (7002/7003) і реєструє mDNS-сервіси `_airplay._tcp` + `_raop._tcp`.
-2. На iPad відкрий **Пункт керування → Повторення екрана** і вибери свій ПК.
-3. iPad виконує handshake: `GET /info → /pair-setup → /pair-verify → /fp-setup →
-   SETUP → RECORD`, потім ллє H.264-відео (TCP 7000) і AAC-ELD-аудіо (UDP).
-4. AirPad розшифровує потік, декодує (D3D11VA, якщо доступне) і показує у вікні
-   зі збереженням aspect ratio, включно з автоповоротом portrait/landscape.
-5. Завершити можна кнопкою **⏏ Disconnect** / **⏹ Stop** або з iPad.
+## Можливості
 
-## Статус проєкту
+- **Стандартне AirPlay-дзеркалювання** — нічого не треба ставити на iPad.
+- **Звук з iPad** через динаміки ПК; гучність синхронізується з кнопками iPad.
+- **Низька затримка:** кадр іде з мережі одразу на екран, без буферів; декодування на GPU (D3D11VA) або CPU.
+- **Повороти екрана** portrait/landscape підхоплюються автоматично.
+- **Повний екран** (F11) і режим без панелей (Ctrl+H) — зручно для проєктора чи другого монітора.
+- **Автозапуск з Windows:** ПК видно в «Повторенні екрана» одразу після входу в систему.
+- Працює без Bonjour, без iTunes і без доступу до інтернету.
 
-- ✅ Повний handshake AirPlay mirror (pairing, FairPlay, SETUP/RECORD/FLUSH/TEARDOWN)
-- ✅ Прийом і розшифрування H.264 (AES-CTR), AVCC→Annex-B, SPS/PPS
-- ✅ Декодування FFmpeg з D3D11VA + software-fallback, рендер у WPF без черг
-- ✅ Аудіо AAC-ELD/AAC/ALAC → WASAPI, mute/volume, синхронізація через RTP-таймінги
-- ✅ mDNS без Bonjour, визначення IP, попередження про різні підмережі, firewall-скрипт
-- ✅ UI: статуси Ready/Waiting/Connected/Streaming, FPS, роздільність, latency, CPU/GPU,
-  fullscreen (F11), приховування UI (Ctrl+H), логи, налаштування
-- ✅ unit/integration тести (`dotnet test`): живий TCP-сервер на loopback, повний цикл старт/стоп приймача, регресії аудіо/реконекту/mDNS
-- ⚠️ E2E з реальним iPad потребує фізичного тестування (див. [`docs/DEBUGGING.md`](docs/DEBUGGING.md))
+## Встановлення
 
-## Швидкий старт
+1. Завантаж `AirPad-<версія>-win-x64.zip` з [Releases](https://github.com/4bit33/AirPad/releases)
+   і розпакуй у будь-яку папку. Встановлювати .NET не треба: усе вже всередині.
+2. Запусти `AirPad.exe`.
+   - Якщо Windows покаже «Windows захистила ваш ПК» — натисни **Докладніше → Все одно запустити**.
+     Так буває з будь-якою програмою без платного цифрового підпису.
+   - Якщо Windows спитає про доступ до мережі — дозволь для **приватних мереж**.
+3. Натисни **▶ Start Receiver**.
+4. На iPad, у тій самій Wi-Fi мережі: **Пункт керування → Повторення екрана → назва твого ПК**.
 
-1. Встанови [.NET 10 SDK](https://dotnet.microsoft.com/download) (для збірки)
-   або [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download) (для запуску).
-2. Збери: `dotnet build AirPad.slnx -c Release`
-3. Поклади FFmpeg DLL поруч з `AirPad.exe`:
-   `powershell -ExecutionPolicy Bypass -File scripts\get-ffmpeg.ps1`
-   (або вручну з [BtbN FFmpeg-Builds](https://github.com/BtbN/FFmpeg-Builds/releases),
-   shared build 8.1: `avcodec/avformat/avutil/swscale/swresample` DLL).
-4. Один раз як адміністратор: `scripts\setup-firewall.ps1`.
-5. Запусти `src\AirPad\bin\Release\net10.0-windows\AirPad.exe` → **Start Receiver**.
-6. На iPad (та сама Wi-Fi мережа): Пункт керування → Повторення екрана → твій ПК.
+Налаштування зберігаються в `%APPDATA%\AirPad\settings.json`, логи — в `%APPDATA%\AirPad\logs`.
+Щоб видалити AirPad, достатньо видалити його папку і (за бажання) `%APPDATA%\AirPad`.
 
-Без FFmpeg DLL програма запуститься, прийматиме handshake і писатиме в лог
-`Video decoder failed to open`; відео з'явиться після встановлення DLL.
+## Керування
 
-## Архітектура
+| Дія | Як |
+|---|---|
+| Повний екран | **F11** або кнопка **Fullscreen** |
+| Сховати / показати панелі | **Ctrl+H** або **Hide UI** |
+| Вийти з обох режимів | **Esc** |
+| Розірвати з'єднання з iPad | **⏏ Disconnect** (приймач лишається видимим) |
+| Перевірити, що відео в програмі працює, без iPad | **Test pattern** |
+
+У **Settings**: назва ПК, яку бачить iPad, автозапуск з Windows, повний екран при підключенні,
+апаратне декодування, ліміт FPS, масштабування (Fit / Fill / Stretch), звук, рівень логів, порти.
+
+## Якщо iPad не бачить ПК
+
+1. iPad і ПК мають бути **в одній мережі** — не в гостьовій Wi-Fi і не в різних роутерах.
+2. Натисни **Settings → Fix Windows Firewall** (попросить права адміністратора)
+   або запусти `setup-firewall.ps1` з архіву від імені адміністратора.
+3. Вимкни VPN на iPad. Якщо роутер ізолює Wi-Fi-клієнтів (AP / client isolation), вимкни цю опцію в його налаштуваннях.
+4. Перезапусти приймач (**Stop → Start Receiver**) і вимкни/увімкни Wi-Fi на iPad.
+
+Більше — у [docs/DEBUGGING.md](docs/DEBUGGING.md): чорний екран, немає звуку, затримка, зависання.
+
+## Обмеження
+
+- **DRM-контент** (Apple TV+, Netflix тощо) iPad стороннім приймачам не віддзеркалює — буде чорний прямокутник.
+- Режим «відео на ТБ» (коли YouTube передає лише відео, а не весь екран) не підтримується —
+  тому AirPad його й не заявляє, і застосунки дзеркалять екран як звичайно.
+- Лише Windows 10 1809+ / 11, x64.
+- Перевірено з iPad Pro 11″ (4-го покоління) на iPadOS 27.
+
+## Збірка з вихідного коду
+
+Потрібен [.NET 10 SDK](https://dotnet.microsoft.com/download).
+
+```powershell
+dotnet build AirPad.slnx -c Release
+dotnet test AirPad.slnx -c Release
+powershell -ExecutionPolicy Bypass -File scripts\get-ffmpeg.ps1   # FFmpeg DLL поруч з exe
+.\src\AirPad\bin\Release\net10.0-windows\AirPad.exe
+```
+
+Готовий архів для релізу: `scripts\publish.ps1` → `publish\AirPad-<версія>-win-x64.zip`.
+Деталі — у [docs/BUILD.md](docs/BUILD.md).
+
+## Як це влаштовано
+
+AirPad реалізує той самий протокол, що й Apple TV: оголошує себе в мережі через mDNS,
+проходить pairing і FairPlay-handshake, розшифровує H.264-відео (AES-CTR) і AAC-ELD-звук,
+декодує їх через FFmpeg і малює кадри у WPF-вікні.
 
 ```
-src/AirPad.Core/            # уся логіка приймача, без залежності від UI
-  Discovery/                # mDNS-анонс, визначення IP, firewall
-  Protocol/                 # RTSP/HTTP-сервер, plist-кодек, сесії, обробник команд
-  Auth/                     # pairing (X25519+Ed25519) і FairPlay (OmgHax)
-  Network/                  # mirror TCP-потік, RAOP UDP-аудіо, dual-mode порт 7000
-  Video/                    # H264-шлюз (AVCC→Annex-B), статистика FPS/latency
-  Media/                    # FFmpeg-декодери (D3D11VA H.264, AAC/ALAC)
-  Audio/                    # WASAPI-плеєр
-  Connection/               # ConnectionManager: автомат Ready→Waiting→Connected→Streaming
-  Config/ Logging/ Stats/   # налаштування, логи [INFO], CPU/GPU-монітор
-src/AirPad/                 # WPF UI (MVVM): головне вікно, налаштування, рендер
-tests/AirPad.Core.Tests/    # unit + integration тести
-scripts/                    # firewall, завантаження FFmpeg, ffplay-fallback
-docs/                       # PROTOCOL / BUILD / DEBUGGING / ARCHITECTURE
+src/AirPad.Core/     логіка приймача без UI: mDNS, RTSP/HTTP, pairing, FairPlay, мережа, декодери, аудіо
+src/AirPad/          WPF-застосунок (MVVM): головне вікно, налаштування, рендер
+tests/               unit- та інтеграційні тести
+scripts/             FFmpeg, firewall, збірка релізу
+docs/                протокол, архітектура, збірка, діагностика
 ```
 
-Пайплайн затримки: `Network → Receive → Decrypt → Decode → GPU Render`
-без проміжних черг (коалесцинг кадрів у UI: не більше одного pending-рендера).
+- [docs/PROTOCOL.md](docs/PROTOCOL.md) — протокол: discovery, порти, pairing, сесії, формати, синхронізація
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — компоненти, потоки даних, стани
+- [docs/BUILD.md](docs/BUILD.md) — збірка, тести, публікація, залежності
+- [docs/DEBUGGING.md](docs/DEBUGGING.md) — типові проблеми і діагностика
 
-## Налаштування
+## Безпека та приватність
 
-Вікно Settings: назва приймача, порти, автозапуск з Windows, fullscreen при
-підключенні, апаратне прискорення, макс. FPS, масштабування (Fit/Fill/Stretch),
-аудіо on/off, режим автентифікації, рівень логування. Зберігається в
-`%APPDATA%\AirPad\settings.json`. Жодних паролів/ключів не зберігається —
-сесійні ключі живуть лише в пам'яті.
-
-## Залежності (всі актуальні на 09.2026)
-
-| Пакет | Версія | Ліцензія | Навіщо |
-|---|---|---|---|
-| Makaretu.Dns.Multicast | 0.27.0 | MIT | mDNS/DNS-SD без Bonjour |
-| BouncyCastle.Cryptography | 2.4.0 | MIT | X25519, Ed25519, AES-CTR/CBC |
-| NAudio | 2.2.1 | MIT | WASAPI-аудіовихід |
-| FFmpeg.AutoGen | 8.1.0 | LGPL | прив'язки до нативного FFmpeg 8.1 |
-| FFmpeg shared build (BtbN) | 8.1 | GPL/LGPL | нативні DLL для декодування |
-| xunit | 2.9.3 | Apache-2.0 | тести |
-
-## Документація
-
-- [`docs/PROTOCOL.md`](docs/PROTOCOL.md) — 8 питань протоколу: discovery, порти,
-  pairing, відеосесія, формати відео/аудіо, синхронізація, завершення сесії
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — компоненти і потоки даних
-- [`docs/BUILD.md`](docs/BUILD.md) — збірка, тести, публікація, залежності
-- [`docs/DEBUGGING.md`](docs/DEBUGGING.md) — типові проблеми і як їх діагностувати
-
-## Безпека
-
-- Приймаються лише підключення з локальної мережі (loopback + RFC1918);
-  зовнішні IP відхиляються на рівні TCP-accept.
-- Стандартний handshake AirPlay (pair-verify + FairPlay); DRM-контент не розшифровується.
-- Firewall відкриває тільки потрібні порти (TCP 5000/7000, UDP 5353/7002/7003).
+- Приймаються лише підключення з локальної мережі; зовнішні адреси відкидаються одразу.
+- Нічого не надсилається в інтернет. Паролі й ключі не зберігаються — сесійні ключі живуть лише в пам'яті.
+- Firewall відкриває тільки потрібні порти: TCP 5000/7000, UDP 5353/7002/7003.
 
 ## Подяки
 
-- [playfair](https://github.com/EstebanKubata/playfair) (EstebanKubata, GPL-3.0): FairPlay-процедура
-  OmgHax, з якої розшифровується ключ відеопотоку (`src/AirPad.Core/Auth/FairPlay`).
-- [SteeBono/airplayreceiver](https://github.com/SteeBono/airplayreceiver) (MIT): C#-порт playfair,
+- [playfair](https://github.com/EstebanKubata/playfair) (EstebanKubata, GPL-3.0) — FairPlay-процедура,
+  з якої розшифровується ключ відеопотоку (`src/AirPad.Core/Auth/FairPlay`).
+- [SteeBono/airplayreceiver](https://github.com/SteeBono/airplayreceiver) (MIT) — C#-порт playfair,
   plist-кодек, моделі RTSP.
-- Binary plist: Chad Burggraf (Tasty Codes), на основі BinaryPListParser Werner Randelshofer.
+- Binary plist — Chad Burggraf (Tasty Codes), на основі BinaryPListParser Werner Randelshofer.
 - Документація й референси: [UxPlay](https://github.com/FDH2/UxPlay),
   [openairplay](https://openairplay.github.io/airplay-spec/),
-  [Emanuele Cozzi AirPlay 2 Internals](https://emanuelecozzi.net/docs/airplay2/).
+  [Emanuele Cozzi — AirPlay 2 Internals](https://emanuelecozzi.net/docs/airplay2/).
+- Бібліотеки: [FFmpeg](https://ffmpeg.org) (LGPL), FFmpeg.AutoGen, NAudio, BouncyCastle, Makaretu.Dns.Multicast.
+
+AirPlay, iPad і iPhone — торговельні марки Apple Inc. AirPad не пов'язаний з Apple.
 
 ## Ліцензія
 
 Copyright (C) 2026 4bit33
 
-AirPad поширюється під [GNU GPL v3](LICENSE). Похідні версії мають бути відкритими під тією ж
-ліцензією, зберігати цей копірайт і позначати внесені зміни. GPL-3.0 тут обов'язкова, бо код
-FairPlay походить з playfair (GPL-3.0).
+AirPad — вільне ПЗ під [GNU GPL v3](LICENSE): його можна використовувати, змінювати й поширювати,
+але похідні версії мають лишатися відкритими під тією ж ліцензією, зберігати цей копірайт і позначати
+внесені зміни. GPL-3.0 тут обов'язкова, бо код FairPlay походить з playfair (GPL-3.0).

@@ -95,7 +95,7 @@ internal sealed class SettingsEditor : INotifyPropertyChanged
             if (FirewallHelper.TryEnsureRules(_manager.Log, s.AirPlayPort, s.AirTunesPort, s.AudioControlPort, s.AudioDataPort, out var message))
                 MessageBox.Show(message, "AirPad", MessageBoxButton.OK, MessageBoxImage.Information);
             else
-                MessageBox.Show(message + "\n\nTip: restart AirPad as administrator and retry.",
+                MessageBox.Show(message + "\n\nTip: you can also run setup-firewall.ps1 (in the AirPad folder) as administrator.",
                     "AirPad", MessageBoxButton.OK, MessageBoxImage.Warning);
         });
     }

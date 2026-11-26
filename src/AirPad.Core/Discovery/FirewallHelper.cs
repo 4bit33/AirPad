@@ -38,8 +38,8 @@ public static class FirewallHelper
     }
 
     /// <summary>
-    /// Tries to install the firewall rules. Returns false (with a message)
-    /// when not elevated instead of throwing a UAC prompt from the library.
+    /// Installs the firewall rules. Without admin rights it runs the same netsh commands elevated, which shows the
+    /// UAC prompt: almost nobody runs AirPad as administrator, so refusing there made the button useless.
     /// </summary>
     public static bool TryEnsureRules(AirPadLogger log, int airPlayPort, int airTunesPort, int audioControlPort, int audioDataPort, out string message)
     {
@@ -49,11 +49,7 @@ public static class FirewallHelper
             return false;
         }
         if (!IsAdministrator())
-        {
-            message = "Administrator rights are required to configure Windows Firewall. Run scripts/setup-firewall.ps1 as Administrator, or click 'Fix Firewall' in Settings (elevated).";
-            log.Warn(message);
-            return false;
-        }
+            return TryRunElevated(log, BuildAddRulesCommand(airPlayPort, airTunesPort, audioControlPort, audioDataPort), out message);
 
         try
         {
@@ -98,5 +94,43 @@ public static class FirewallHelper
             log.Error(message, ex);
             return false;
         }
+    }
+
+    private static bool TryRunElevated(AirPadLogger log, string command, out string message)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo("cmd.exe", "/c " + command)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WindowStyle = ProcessWindowStyle.Hidden,
+            };
+            using var p = Process.Start(psi);
+            if (p == null || !p.WaitForExit(30000))
+            {
+                message = "Windows Firewall setup did not finish in time.";
+            }
+            else if (p.ExitCode != 0)
+            {
+                message = $"netsh exited with code {p.ExitCode} while adding the firewall rules.";
+            }
+            else
+            {
+                message = "Windows Firewall rules installed.";
+                log.Info(message);
+                return true;
+            }
+        }
+        catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 1223) // ERROR_CANCELLED
+        {
+            message = "Administrator rights were not granted, so the firewall rules were not added.";
+        }
+        catch (Exception ex)
+        {
+            message = $"Failed to configure Windows Firewall: {ex.Message}";
+        }
+        log.Warn(message);
+        return false;
     }
 }
