@@ -97,15 +97,42 @@ public static class NetworkInfo
         if (!all.Any(IsPrivateAddress))
             return "No private LAN address (192.168.x.x / 10.x.x.x / 172.16.x.x) detected. The iPad must be on the same local network; VPNs or public networks will block discovery.";
 
-        if (all.Count > 1)
-        {
-            // Multiple subnets (e.g. Ethernet + Wi-Fi + VM adapters) are the #1
-            // cause of "iPad cannot see the PC". Surface it early.
-            var prefixes = all.Select(a => string.Join(".", a.ToString().Split('.').Take(3))).Distinct().ToList();
-            if (prefixes.Count > 1)
-                return $"Multiple local subnets detected ({string.Join(", ", all)}). Make sure the iPad joins the same Wi-Fi network as one of these addresses.";
-        }
+        // Two real LANs (e.g. Ethernet + Wi-Fi on different routers) are a common cause of "iPad cannot see the PC".
+        // VM, VPN and hotspot adapters are left out: almost every PC has some, and naming them only adds noise.
+        var lans = GetPhysicalLanAddresses();
+        var prefixes = lans.Select(a => string.Join(".", a.ToString().Split('.').Take(3))).Distinct().Count();
+        if (prefixes > 1)
+            return $"This PC is on several networks ({string.Join(", ", lans)}). Make sure the iPad joins the same Wi-Fi network as one of these addresses.";
 
         return null;
+    }
+
+    private static readonly string[] VirtualMarkers =
+        { "virtual", "vmware", "virtualbox", "hyper-v", "vethernet", "tap-", "tailscale", "zerotier", "wireguard", "vpn", "wi-fi direct" };
+
+    internal static bool IsVirtualAdapter(string name, string description) =>
+        VirtualMarkers.Any(m => name.Contains(m, StringComparison.OrdinalIgnoreCase) || description.Contains(m, StringComparison.OrdinalIgnoreCase));
+
+    private static List<IPAddress> GetPhysicalLanAddresses()
+    {
+        var result = new List<IPAddress>();
+        try
+        {
+            foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (nic.OperationalStatus != OperationalStatus.Up || IsVirtualAdapter(nic.Name, nic.Description))
+                    continue;
+                foreach (var u in nic.GetIPProperties().UnicastAddresses)
+                {
+                    if (u.Address.AddressFamily == AddressFamily.InterNetwork && IsPrivateAddress(u.Address) && !result.Contains(u.Address))
+                        result.Add(u.Address);
+                }
+            }
+        }
+        catch
+        {
+            // Best effort only.
+        }
+        return result;
     }
 }

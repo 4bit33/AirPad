@@ -64,6 +64,27 @@ public sealed class ReceiverLifecycleTests : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Start_WhenAirPlayPortTaken_FailsWithoutLeavingAHalfStartedReceiver()
+    {
+        var manager = _manager!;
+        var squatter = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Any, 17900);
+        squatter.Start();
+        try
+        {
+            await Assert.ThrowsAnyAsync<Exception>(manager.StartAsync);
+            Assert.False(manager.IsRunning);
+            Assert.Equal(ReceiverState.Ready, manager.State);
+        }
+        finally
+        {
+            squatter.Stop();
+        }
+
+        await manager.StartAsync(); // the control port was released, so a retry works
+        Assert.True(manager.IsRunning);
+    }
+
+    [Fact]
     public async Task ControlPort_AcceptsRtspOptions()
     {
         var manager = _manager!;

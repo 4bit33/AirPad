@@ -89,9 +89,8 @@
             <Setter Property="Margin" Value="0,4"/>
         </Style>
 
+        <!-- The stock ComboBox face stays light whatever Background says, so its text keeps the default dark colour. -->
         <Style TargetType="ComboBox">
-            <Setter Property="Background" Value="#101216"/>
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}"/>
             <Setter Property="Margin" Value="0,4"/>
         </Style>
 

@@ -200,8 +200,22 @@ public sealed class ConnectionManager : IDisposable
     {
         if (IsRunning)
             return;
+        try
+        {
+            await StartCoreAsync().ConfigureAwait(false);
+        }
+        catch
+        {
+            // E.g. port 7000 taken by another app after 5000 already bound: without this the half-started receiver
+            // counts as running (Start greyed out) while nothing is advertised, so the iPad never sees the PC.
+            await StopAsync().ConfigureAwait(false);
+            throw;
+        }
+    }
 
-        _log.Info("Receiver started");
+    private async Task StartCoreAsync()
+    {
+        _log.Info("Starting receiver");
         var warning = NetworkInfo.GetNetworkWarning();
         if (warning != null)
             _log.Warn(warning);

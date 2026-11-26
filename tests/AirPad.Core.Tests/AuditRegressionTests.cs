@@ -691,3 +691,53 @@ public sealed class SessionRegressionTests
         Assert.Null(session.DecryptedAesKey);
     }
 }
+
+/// <summary>The "several networks" banner must ignore VM/VPN/hotspot adapters, or it shows on nearly every PC.</summary>
+public sealed class NetworkWarningTests
+{
+    [Theory]
+    [InlineData("Tailscale", "Tailscale Tunnel")]
+    [InlineData("Ethernet 4", "VirtualBox Host-Only Ethernet Adapter")]
+    [InlineData("ZeroTier One [a581878f7ddd29ed]", "ZeroTier Virtual Port")]
+    [InlineData("VMware Network Adapter VMnet8", "VMware Virtual Ethernet Adapter for VMnet8")]
+    [InlineData("vEthernet (Default Switch)", "Hyper-V Virtual Ethernet Adapter")]
+    [InlineData("Local Area Connection* 10", "Microsoft Wi-Fi Direct Virtual Adapter #2")]
+    public void VirtualAdapters_AreIgnored(string name, string description) =>
+        Assert.True(Discovery.NetworkInfo.IsVirtualAdapter(name, description));
+
+    [Theory]
+    [InlineData("Ethernet", "Realtek Gaming 2.5GbE Family Controller")]
+    [InlineData("Wi-Fi", "Intel(R) Wi-Fi 6E AX211 160MHz")]
+    public void PhysicalAdapters_AreCounted(string name, string description) =>
+        Assert.False(Discovery.NetworkInfo.IsVirtualAdapter(name, description));
+}
+
+public sealed class DeviceIdTests
+{
+    [Fact]
+    public void FirstLoad_GivesThisInstallItsOwnDeviceId_AndKeepsIt()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"airpad-devid-{Guid.NewGuid():N}.json");
+        try
+        {
+            var first = new Config.SettingsStore(path).Load().DeviceId;
+            Assert.NotEqual(Config.AirPadSettings.LegacyDeviceId, first);
+            Assert.Matches("^([0-9A-F]{2}:){5}[0-9A-F]{2}$", first);
+            Assert.Equal(first, new Config.SettingsStore(path).Load().DeviceId);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void CorruptFile_IsNotOverwritten()
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"airpad-devid-{Guid.NewGuid():N}.json");
+        File.WriteAllText(path, "{ not json");
+        try
+        {
+            new Config.SettingsStore(path).Load();
+            Assert.Equal("{ not json", File.ReadAllText(path));
+        }
+        finally { File.Delete(path); }
+    }
+}

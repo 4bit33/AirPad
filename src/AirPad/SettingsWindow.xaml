@@ -1,8 +1,9 @@
 <Window x:Class="AirPad.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="AirPad Settings" Height="620" Width="480"
-        WindowStartupLocation="CenterOwner" ResizeMode="NoResize">
+        Title="AirPad Settings" Height="760" Width="480"
+        WindowStartupLocation="CenterOwner" ResizeMode="NoResize"
+        Style="{StaticResource {x:Type Window}}">
     <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16">
         <StackPanel>
             <Label Content="Receiver name (shown on the iPad)"/>
@@ -47,14 +48,6 @@
                 <ComboBoxItem Content="Fill"/>
                 <ComboBoxItem Content="Stretch"/>
             </ComboBox>
-
-            <Label Content="Authentication mode" Margin="0,8,0,0"/>
-            <ComboBox SelectedValue="{Binding AuthMode}" SelectedValuePath="Content" Width="200" HorizontalAlignment="Left">
-                <ComboBoxItem Content="Open"/>
-                <ComboBoxItem Content="Pin"/>
-            </ComboBox>
-            <TextBlock Text="Pin mode is reserved for a future release; pairing currently uses the standard AirPlay handshake."
-                       Foreground="{StaticResource DimBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,0"/>
 
             <Label Content="Logging level" Margin="0,8,0,0"/>
             <ComboBox SelectedValue="{Binding LogLevel}" SelectedValuePath="Content" Width="200" HorizontalAlignment="Left">

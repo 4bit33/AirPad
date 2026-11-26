@@ -30,8 +30,12 @@ public partial class MainWindow : Window
         Closed += (_, _) => _vm.Dispose();
         PreviewKeyDown += OnPreviewKeyDown;
 
+        // Launched by "Start with Windows": the point is that the iPad can see the PC without anyone clicking Start.
         if (Environment.GetCommandLineArgs().Any(a => a.Equals("--minimized", StringComparison.OrdinalIgnoreCase)))
+        {
             WindowState = WindowState.Minimized;
+            Loaded += (_, _) => _vm.StartCommand.Execute(null);
+        }
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -114,7 +118,8 @@ public partial class MainWindow : Window
         {
             Owner = this,
         };
-        dlg.ShowDialog();
+        if (dlg.ShowDialog() == true)
+            _vm.OnSettingsSaved();
     }
 }
 

@@ -45,7 +45,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
     public ICommand ToggleChromeCommand { get; }
     public ICommand ToggleMuteCommand { get; }
     public ICommand OpenSettingsCommand { get; }
-    public ICommand FixFirewallCommand { get; }
     public ICommand TestPatternCommand { get; }
 
     public MainViewModel(AirPadLogger log, ConnectionManager manager)
@@ -84,7 +83,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
             OnPropertyChanged(nameof(MuteText));
         });
         OpenSettingsCommand = new RelayCommand(() => SettingsRequested?.Invoke(this, EventArgs.Empty));
-        FixFirewallCommand = new AsyncRelayCommand(FixFirewallAsync, () => _manager.IsRunning || true);
         TestPatternCommand = new RelayCommand(ToggleTestPattern);
 
         _statsTimer = new DispatcherTimer(TimeSpan.FromMilliseconds(500), DispatcherPriority.Background, (_, _) => RefreshStats(), _dispatcher);
@@ -347,19 +345,6 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         RefreshState();
     }
 
-    private async Task FixFirewallAsync()
-    {
-        var s = _manager.Settings;
-        await Task.Run(() =>
-        {
-            if (FirewallHelper.TryEnsureRules(_log, s.AirPlayPort, s.AirTunesPort, s.AudioControlPort, s.AudioDataPort, out var message))
-                _ = _dispatcher.BeginInvoke(() => MessageBox.Show(message, "AirPad", MessageBoxButton.OK, MessageBoxImage.Information));
-            else
-                _ = _dispatcher.BeginInvoke(() => MessageBox.Show(message + "\n\nTip: right-click AirPad and choose 'Run as administrator', then retry.",
-                    "AirPad", MessageBoxButton.OK, MessageBoxImage.Warning));
-        });
-    }
-
     private void OnFrameReady(object? sender, VideoFrame frame)
     {
         // Coalesce: never queue more than one pending render (lowest latency), and the newest frame wins.
@@ -431,6 +416,12 @@ public sealed class MainViewModel : INotifyPropertyChanged, IDisposable
         _orientation = "—";
         OnPropertyChanged(nameof(OrientationText));
         OnPropertyChanged(nameof(ResolutionText));
+    }
+
+    public void OnSettingsSaved()
+    {
+        OnPropertyChanged(nameof(ReceiverNameText));
+        OnPropertyChanged(nameof(VideoStretch));
     }
 
     private void OnPropertyChanged([CallerMemberName] string? name = null) =>

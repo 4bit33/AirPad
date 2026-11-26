@@ -119,8 +119,10 @@ internal sealed class SettingsEditor : INotifyPropertyChanged
             return false;
         }
 
-        bool portsChanged = ap != _manager.Settings.AirPlayPort || at != _manager.Settings.AirTunesPort ||
-                            ac != _manager.Settings.AudioControlPort || ad != _manager.Settings.AudioDataPort;
+        // Name, device ID and ports are baked into the mDNS records and listening sockets at start.
+        bool needsRestart = ap != _manager.Settings.AirPlayPort || at != _manager.Settings.AirTunesPort ||
+                            ac != _manager.Settings.AudioControlPort || ad != _manager.Settings.AudioDataPort ||
+                            ReceiverName.Trim() != _manager.Settings.ReceiverName || DeviceId.Trim() != _manager.Settings.DeviceId;
         bool wasRunning = _manager.IsRunning;
 
         var s = _manager.Settings;
@@ -140,9 +142,9 @@ internal sealed class SettingsEditor : INotifyPropertyChanged
         _manager.SaveSettings();
         AutostartHelper.SetEnabled(AutoStart);
 
-        if (portsChanged && wasRunning)
+        if (needsRestart && wasRunning)
         {
-            MessageBox.Show("Ports changed. The receiver will restart to apply them.", "AirPad",
+            MessageBox.Show("The receiver will restart to apply the new name, device ID or ports.", "AirPad",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             _ = Task.Run(async () =>
             {

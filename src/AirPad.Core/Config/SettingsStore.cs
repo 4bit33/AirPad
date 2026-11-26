@@ -24,21 +24,30 @@ public sealed class SettingsStore
 
     public AirPadSettings Load()
     {
+        AirPadSettings? settings = null;
+        bool corrupt = false;
         try
         {
             if (File.Exists(FilePath))
-            {
-                var json = File.ReadAllText(FilePath);
-                var settings = JsonSerializer.Deserialize<AirPadSettings>(json, JsonOptions);
-                if (settings != null)
-                    return Sanitize(settings);
-            }
+                settings = JsonSerializer.Deserialize<AirPadSettings>(File.ReadAllText(FilePath), JsonOptions);
         }
         catch
         {
-            // Corrupt settings file: fall back to defaults.
+            corrupt = true; // fall back to defaults, but leave the file alone so it can be fixed by hand
         }
-        return new AirPadSettings();
+        settings ??= new AirPadSettings();
+
+        // Every install used to share one device ID, so two AirPad PCs on a network looked like one receiver to the
+        // iPad. Give each install its own, once, and keep it: a new ID on every launch would look like a new device.
+        if (settings.DeviceId == AirPadSettings.LegacyDeviceId)
+        {
+            settings.DeviceId = AirPadSettings.NewDeviceId();
+            if (!corrupt)
+            {
+                try { Save(settings); } catch { /* read-only profile: the ID just isn't persisted */ }
+            }
+        }
+        return Sanitize(settings);
     }
 
     public void Save(AirPadSettings settings)
